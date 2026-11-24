@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "aspekt-tv",
+    "name": "ASPEKT.TV",
     "slug": "aspekt-tv",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,6 +19,18 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
+      "name": "ASPEKT.TV",
+      "shortName": "ASPEKT",
+      "description": "ASPEKT.TV – Nachrichten, Live-TV und PULSE aus Österreich.",
+      "lang": "de",
+      "dir": "ltr",
+      "scope": "/",
+      "startUrl": "/",
+      "display": "standalone",
+      "orientation": "portrait",
+      "themeColor": "#E11D48",
+      "backgroundColor": "#09090B",
+      "preferRelatedApplications": false,
       "favicon": "./assets/favicon.png"
     }
   }
