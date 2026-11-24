@@ -18,6 +18,7 @@ import { aspectTheme } from './src/aspectTheme';
 type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 'Reporter' | 'Creator';
 type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigegeben';
 type PostStatus = 'Entwurf' | 'Zur Prüfung' | 'Freigegeben' | 'Abgelehnt';
+type AppealStatus = 'Eingereicht' | 'Angenommen' | 'Abgelehnt';
 type AgeRating = 'Alle' | '18+';
 type PulseReaction = '❤️' | '😂' | '👍' | '😮';
 type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
@@ -71,6 +72,9 @@ interface SocialPost {
   reactions?: ReactionCounts;
   myReaction?: PulseReaction | null;
   createdAt?: number;
+  moderationReason?: string;
+  appealReason?: string;
+  appealStatus?: AppealStatus;
 }
 
 interface Story {
@@ -280,6 +284,14 @@ export default function App() {
   const [postNotices, setPostNotices] = useState<
     Record<string, { message: string; tone: PulseNoticeTone }>
   >({});
+  const [moderationReasonDrafts, setModerationReasonDrafts] = useState<
+    Record<string, string>
+  >({});
+  const [appealDrafts, setAppealDrafts] = useState<Record<string, string>>({});
+  const [moderationNotice, setModerationNotice] = useState<{
+    message: string;
+    tone: PulseNoticeTone;
+  } | null>(null);
   const [shareNote, setShareNote] = useState('');
   const [followed, setFollowed] = useState<string[]>(
     initial.followed ?? [],
@@ -354,6 +366,9 @@ export default function App() {
   const pendingPulseCount = eligiblePulsePosts.filter(
     (post) => post.status === 'Zur Prüfung' && post.handle === '@mein_creator',
   ).length;
+  const myRestrictedPosts = posts.filter(
+    (post) => post.handle === '@mein_creator' && post.status === 'Abgelehnt',
+  );
   const filteredPulsePosts = pulseFeedFilter === 'Gefolgt'
     ? eligiblePulsePosts.filter((post) => followed.includes(post.handle))
     : eligiblePulsePosts;
@@ -483,10 +498,131 @@ export default function App() {
   };
 
   const moderatePost = (id: string, status: 'Freigegeben' | 'Abgelehnt') => {
+    const reason = moderationReasonDrafts[id]?.trim() ?? '';
+    if (status === 'Abgelehnt' && !reason) {
+      setModerationNotice({
+        message: 'Eine Ablehnung benötigt eine konkrete Begründung.',
+        tone: 'error',
+      });
+      return;
+    }
+    if (status === 'Abgelehnt' && reason.length > 300) {
+      setModerationNotice({
+        message: 'Die Begründung darf höchstens 300 Zeichen enthalten.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    const post = posts.find((item) => item.id === id);
+    if (!post) {
+      setModerationNotice({
+        message: 'Der Beitrag wurde nicht gefunden und nicht moderiert.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    const historyEntry = status === 'Abgelehnt'
+      ? `Eingeschränkt durch ${role}: ${reason}`
+      : `Freigegeben durch ${role}`;
     setPosts((prev) => prev.map((post) => post.id === id
-      ? { ...post, status, history: [...post.history, `${status} durch ${role}`] }
+      ? {
+          ...post,
+          status,
+          moderationReason: status === 'Abgelehnt' ? reason : undefined,
+          appealReason: undefined,
+          appealStatus: undefined,
+          history: [...post.history, historyEntry],
+        }
       : post));
-    logChange(`Social-Beitrag ${status === 'Freigegeben' ? 'freigegeben' : 'abgelehnt'}`);
+    setModerationReasonDrafts((previous) => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+    const feedback = status === 'Abgelehnt'
+      ? 'Beitrag wurde eingeschränkt. Die Begründung ist für den Creator sichtbar.'
+      : 'Beitrag wurde freigegeben und ist jetzt sichtbar.';
+    setModerationNotice({ message: feedback, tone: 'success' });
+    showPostNotice(id, feedback, 'success');
+    logChange(`Social-Beitrag ${status === 'Freigegeben' ? 'freigegeben' : `eingeschränkt: ${reason}`}`);
+  };
+
+  const submitPostAppeal = (id: string) => {
+    const post = posts.find((item) => item.id === id);
+    if (!post || post.handle !== '@mein_creator' || post.status !== 'Abgelehnt') {
+      showPostNotice(id, 'Für diesen Beitrag kann kein Einspruch eingereicht werden.', 'error');
+      return;
+    }
+    if (post.appealStatus) {
+      showPostNotice(id, 'Zu diesem Beitrag liegt bereits eine Einspruchsentscheidung vor.', 'info');
+      return;
+    }
+
+    const reason = appealDrafts[id]?.trim() ?? '';
+    if (!reason) {
+      showPostNotice(id, 'Bitte begründe deinen Einspruch kurz.', 'error');
+      return;
+    }
+    if (reason.length > 300) {
+      showPostNotice(id, 'Die Einspruchsbegründung darf höchstens 300 Zeichen enthalten.', 'error');
+      return;
+    }
+
+    setPosts((previous) => previous.map((item) => item.id === id
+      ? {
+          ...item,
+          appealReason: reason,
+          appealStatus: 'Eingereicht',
+          history: [...item.history, `Einspruch eingereicht: ${reason}`],
+        }
+      : item));
+    setAppealDrafts((previous) => {
+      const next = { ...previous };
+      delete next[id];
+      return next;
+    });
+    showPostNotice(id, 'Einspruch eingereicht. Die Redaktion kann ihn jetzt prüfen.', 'success');
+    logChange('Einspruch zu einem Social-Beitrag eingereicht');
+  };
+
+  const resolvePostAppeal = (id: string, accepted: boolean) => {
+    const post = posts.find((item) => item.id === id);
+    if (!post || post.status !== 'Abgelehnt' || post.appealStatus !== 'Eingereicht') {
+      setModerationNotice({
+        message: 'Der Einspruch ist nicht mehr offen und wurde nicht geändert.',
+        tone: 'error',
+      });
+      return;
+    }
+    if (!accepted && !post.moderationReason?.trim()) {
+      setModerationNotice({
+        message: 'Ein Einspruch kann ohne konkrete, gespeicherte Moderationsbegründung nicht abgelehnt werden.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    const appealStatus: AppealStatus = accepted ? 'Angenommen' : 'Abgelehnt';
+    const historyEntry = accepted
+      ? `Einspruch angenommen durch ${role}`
+      : `Einspruch abgelehnt durch ${role}; die ursprüngliche Begründung bleibt bestehen`;
+    setPosts((previous) => previous.map((item) => item.id === id
+      ? {
+          ...item,
+          status: accepted ? 'Freigegeben' : 'Abgelehnt',
+          moderationReason: accepted ? undefined : item.moderationReason,
+          appealStatus,
+          history: [...item.history, historyEntry],
+        }
+      : item));
+    const feedback = accepted
+      ? 'Einspruch angenommen. Der Beitrag ist jetzt sichtbar.'
+      : 'Einspruch abgelehnt. Die ursprüngliche Begründung bleibt beim Beitrag sichtbar.';
+    setModerationNotice({ message: feedback, tone: 'success' });
+    showPostNotice(id, feedback, 'success');
+    logChange(feedback);
   };
 
   const sharePost = () => {
@@ -647,6 +783,9 @@ export default function App() {
     setStoryNotice(null);
     setPulseNotice(null);
     setPostNotices({});
+    setModerationReasonDrafts({});
+    setAppealDrafts({});
+    setModerationNotice(null);
   };
 
   const openTel = (number: string) => void Linking.openURL(`tel:${number}`);
@@ -1155,7 +1294,11 @@ export default function App() {
                         ? styles.pulseStatusReviewText
                         : styles.pulseStatusPublishedText,
                     ]}>
-                      {post.status === 'Zur Prüfung' ? 'Deine Einreichung · Zur Prüfung' : 'Veröffentlicht'}
+                      {post.status === 'Zur Prüfung'
+                        ? 'Deine Einreichung · Zur Prüfung'
+                        : post.appealStatus === 'Angenommen'
+                          ? 'Sichtbar · Einspruch angenommen'
+                          : 'Sichtbar'}
                     </Text>
                   </View>
                   <View style={styles.hashtagRow}>
@@ -1253,6 +1396,109 @@ export default function App() {
                       ? 'Folge Creatorn oder wechsle zu „Alle“, um weitere Beiträge zu sehen.'
                       : 'Reiche einen PULSE-Beitrag ein oder schau später wieder vorbei.'}
                   </Text>
+                </View>
+              )}
+              {myRestrictedPosts.length > 0 && (
+                <View style={styles.moderationSection}>
+                  <Text style={styles.sectionTitle}>Meine eingeschränkten Beiträge</Text>
+                  <Text style={styles.bodyText}>
+                    Eine Ablehnung wird nicht still angewendet: Hier findest du den konkreten Grund und kannst Einspruch einreichen.
+                  </Text>
+                  {myRestrictedPosts.map((post) => {
+                    const ageRestricted =
+                      ageMode === 'U18' &&
+                      (post.rating === '18+' || containsProtected(post.text));
+                    return (
+                    <View key={post.id} style={styles.moderationCard}>
+                      <Text style={styles.moderationPostText}>
+                        {ageRestricted
+                          ? 'Beitragstext im aktiven U18-Schutzmodus ausgeblendet.'
+                          : post.text}
+                      </Text>
+                      <View style={[
+                        styles.moderationStatusBadge,
+                        post.appealStatus === 'Eingereicht'
+                          ? styles.appealPendingBadge
+                          : styles.restrictedBadge,
+                      ]}>
+                        <Text style={[
+                          styles.moderationStatusText,
+                          post.appealStatus === 'Eingereicht'
+                            ? styles.appealPendingText
+                            : styles.restrictedText,
+                        ]}>
+                          {post.appealStatus === 'Eingereicht'
+                            ? 'Einspruch eingereicht'
+                            : post.appealStatus === 'Abgelehnt'
+                              ? 'Einspruch abgelehnt'
+                              : 'Eingeschränkt'}
+                        </Text>
+                      </View>
+                      <Text style={styles.moderationReasonText}>
+                        Begründung der Redaktion: {post.moderationReason
+                          || 'Für diese frühere Entscheidung wurde keine Begründung gespeichert. Bitte wende dich an die Redaktion.'}
+                      </Text>
+                      {post.appealStatus === 'Eingereicht' && (
+                        <Text style={styles.appealReasonText}>
+                          Dein Einspruch: {post.appealReason}
+                        </Text>
+                      )}
+                      {post.appealStatus === 'Abgelehnt' && (
+                        <Text style={styles.appealReasonText}>
+                          Die ursprüngliche Begründung bleibt bestehen.
+                        </Text>
+                      )}
+                      {!post.appealStatus && (
+                        <View style={styles.appealForm}>
+                          <TextInput
+                            style={styles.moderationReasonInput}
+                            value={appealDrafts[post.id] ?? ''}
+                            onChangeText={(text) => setAppealDrafts((previous) => ({
+                              ...previous,
+                              [post.id]: text,
+                            }))}
+                            placeholder="Kurze Begründung für deinen Einspruch"
+                            placeholderTextColor={aspectTheme.colors.textMuted}
+                            maxLength={300}
+                            multiline
+                            accessibilityLabel="Begründung für den Einspruch"
+                          />
+                          <Text style={styles.moderationHint}>
+                            Kurze Begründung · max. 300 Zeichen
+                          </Text>
+                          <TouchableOpacity
+                            style={styles.appealButton}
+                            onPress={() => submitPostAppeal(post.id)}
+                            accessibilityRole="button"
+                          >
+                            <Text style={styles.appealButtonText}>Einspruch einreichen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {postNotices[post.id] && (
+                        <View style={[
+                          styles.feedbackBanner,
+                          postNotices[post.id].tone === 'success'
+                            ? styles.feedbackBannerSuccess
+                            : postNotices[post.id].tone === 'error'
+                              ? styles.feedbackBannerError
+                              : styles.feedbackBannerInfo,
+                        ]}>
+                          <Text style={[
+                            styles.pulseNotice,
+                            postNotices[post.id].tone === 'success'
+                              ? styles.noticeSuccess
+                              : postNotices[post.id].tone === 'error'
+                                ? styles.noticeError
+                                : styles.noticeInfo,
+                          ]}>
+                            {postNotices[post.id].message}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    );
+                  })}
                 </View>
               )}
               {shareNote !== '' && <Text style={styles.shareToast}>{shareNote}</Text>}
@@ -1556,11 +1802,51 @@ export default function App() {
                     ))}
 
                     <Text style={styles.sectionTitle}>Social-Medien-Warteschlange</Text>
+                    {moderationNotice && (
+                      <View style={[
+                        styles.feedbackBanner,
+                        moderationNotice.tone === 'success'
+                          ? styles.feedbackBannerSuccess
+                          : moderationNotice.tone === 'error'
+                            ? styles.feedbackBannerError
+                            : styles.feedbackBannerInfo,
+                      ]}>
+                        <Text style={[
+                          styles.pulseNotice,
+                          moderationNotice.tone === 'success'
+                            ? styles.noticeSuccess
+                            : moderationNotice.tone === 'error'
+                              ? styles.noticeError
+                              : styles.noticeInfo,
+                        ]}>
+                          {moderationNotice.message}
+                        </Text>
+                      </View>
+                    )}
                     {posts.filter((post) => post.status === 'Zur Prüfung').map((post) => (
                       <View key={post.id} style={styles.cmsRow}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.cmsArticleTitle}>{post.text}</Text>
                           <Text style={styles.bodyText}>{post.creator} · {post.rating}</Text>
+                          <TextInput
+                            style={styles.moderationReasonInput}
+                            value={moderationReasonDrafts[post.id] ?? ''}
+                            onChangeText={(text) => {
+                              setModerationReasonDrafts((previous) => ({
+                                ...previous,
+                                [post.id]: text,
+                              }));
+                              setModerationNotice(null);
+                            }}
+                            placeholder="Konkreter Ablehnungsgrund (max. 300 Zeichen)"
+                            placeholderTextColor={aspectTheme.colors.textMuted}
+                            maxLength={300}
+                            multiline
+                            accessibilityLabel={`Moderationsbegründung für ${post.creator}`}
+                          />
+                          <Text style={styles.moderationHint}>
+                            Pflicht bei Ablehnung · max. 300 Zeichen
+                          </Text>
                         </View>
                         <View style={styles.cmsActions}>
                           <TouchableOpacity onPress={() => moderatePost(post.id, 'Freigegeben')}><Text style={styles.cmsApprove}>Freigeben</Text></TouchableOpacity>
@@ -1568,6 +1854,41 @@ export default function App() {
                         </View>
                       </View>
                     ))}
+                    {!posts.some((post) => post.status === 'Zur Prüfung') && (
+                      <Text style={styles.bodyText}>Keine Beiträge warten auf Moderation.</Text>
+                    )}
+
+                    <Text style={styles.sectionTitle}>Einsprüche</Text>
+                    {posts.filter((post) => post.appealStatus === 'Eingereicht').map((post) => (
+                      <View key={`appeal-${post.id}`} style={styles.appealReviewCard}>
+                        <Text style={styles.cmsArticleTitle}>{post.text}</Text>
+                        <Text style={styles.moderationReasonText}>
+                          Ursprüngliche Begründung: {post.moderationReason || 'Keine frühere Begründung wurde gespeichert.'}
+                        </Text>
+                        <Text style={styles.appealReasonText}>
+                          Einspruch von {post.creator}: {post.appealReason}
+                        </Text>
+                        <View style={styles.appealReviewActions}>
+                          <TouchableOpacity
+                            style={styles.appealApproveButton}
+                            onPress={() => resolvePostAppeal(post.id, true)}
+                            accessibilityRole="button"
+                          >
+                            <Text style={styles.appealButtonText}>Einspruch annehmen</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.appealRejectButton}
+                            onPress={() => resolvePostAppeal(post.id, false)}
+                            accessibilityRole="button"
+                          >
+                            <Text style={styles.appealButtonText}>Einspruch ablehnen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                    {!posts.some((post) => post.appealStatus === 'Eingereicht') && (
+                      <Text style={styles.bodyText}>Derzeit keine offenen Einsprüche.</Text>
+                    )}
                   </View>
                   <View style={styles.cmsSidebar}>
                     <Text style={styles.sectionTitle}>Eilmeldung</Text>
@@ -1997,6 +2318,112 @@ const styles = StyleSheet.create({
     color: aspectTheme.colors.textMuted,
     fontSize: aspectTheme.typography.label,
     lineHeight: 17,
+  },
+  moderationSection: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.lg,
+    padding: aspectTheme.spacing.lg,
+    gap: aspectTheme.spacing.md,
+  },
+  moderationCard: {
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.status.error.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.md,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.sm,
+  },
+  moderationPostText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.body,
+    lineHeight: aspectTheme.typography.lineBody,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
+  moderationStatusBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.xxs,
+  },
+  restrictedBadge: {
+    backgroundColor: aspectTheme.colors.status.error.surface,
+    borderColor: aspectTheme.colors.status.error.border,
+  },
+  appealPendingBadge: {
+    backgroundColor: aspectTheme.colors.status.info.surface,
+    borderColor: aspectTheme.colors.status.info.border,
+  },
+  moderationStatusText: {
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  restrictedText: { color: aspectTheme.colors.status.error.text },
+  appealPendingText: { color: aspectTheme.colors.status.info.text },
+  moderationReasonText: {
+    color: aspectTheme.colors.status.error.text,
+    fontSize: aspectTheme.typography.body,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  moderationHint: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.caption,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  appealReasonText: {
+    color: aspectTheme.colors.status.info.text,
+    fontSize: aspectTheme.typography.body,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  appealForm: { gap: aspectTheme.spacing.sm },
+  moderationReasonInput: {
+    minHeight: 68,
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.sm,
+    color: aspectTheme.colors.textPrimary,
+    padding: aspectTheme.spacing.sm,
+    textAlignVertical: 'top',
+  },
+  appealButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: aspectTheme.colors.accent,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  appealButtonText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  appealReviewCard: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.status.info.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.md,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.sm,
+  },
+  appealReviewActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.sm,
+  },
+  appealApproveButton: {
+    backgroundColor: aspectTheme.colors.status.success.border,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  appealRejectButton: {
+    backgroundColor: aspectTheme.colors.status.error.border,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
   },
   storyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   storySummary: { color: '#A1A1AA', fontSize: 11, fontWeight: '700' },
