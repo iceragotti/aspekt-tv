@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { aspectTheme } from '../aspectTheme';
 
 interface Profile {
   id: string;
@@ -77,6 +78,22 @@ const CHAT_IMAGE_MIME_TYPES = [
   'image/webp',
   'image/gif',
 ];
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+const formatMessageTime = (createdAt: string) => {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return '';
+  const time = date.toLocaleTimeString('de-AT', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return date.toDateString() === new Date().toDateString()
+    ? time
+    : `${date.toLocaleDateString('de-AT', {
+        day: '2-digit',
+        month: '2-digit',
+      })} ${time}`;
+};
 
 export default function SocialChatModal({
   visible,
@@ -92,6 +109,14 @@ export default function SocialChatModal({
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messageScrollRef = useRef<ScrollView | null>(null);
+  const shouldAutoScrollToLatestRef = useRef(true);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
+  const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const lastTypingBroadcastAtRef = useRef(0);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
@@ -563,6 +588,8 @@ export default function SocialChatModal({
   useEffect(() => {
     chatLoadRevisionRef.current += 1;
     visibleMessageIdsRef.current.clear();
+    shouldAutoScrollToLatestRef.current = true;
+    setShowScrollToLatest(false);
     setMessages([]);
     setReplyingTo(null);
     setConfirmDeleteMessageId(null);
@@ -584,12 +611,49 @@ export default function SocialChatModal({
     if (!session || (!selectedProfile && !selectedGroup)) return;
     const groupId = selectedGroup?.id ?? null;
     const otherUserId = selectedProfile?.id ?? '';
+    let isActive = true;
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingStopTimerRef.current = null;
+    lastTypingBroadcastAtRef.current = 0;
+    setTypingUserIds([]);
     void loadMessages(otherUserId, groupId, retention);
 
     const channel = supabase
       .channel(
         `chat:${session.user.id}:${groupId ? `group:${groupId}` : `user:${otherUserId}`}`,
       )
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        const typingEvent = payload as {
+          user_id?: unknown;
+          is_typing?: unknown;
+        };
+        if (
+          typeof typingEvent.user_id !== 'string' ||
+          typingEvent.user_id === session.user.id
+        ) return;
+
+        const typingUserId = typingEvent.user_id;
+        const existingTimeout = typingTimeoutsRef.current[typingUserId];
+        if (existingTimeout) clearTimeout(existingTimeout);
+        if (typingEvent.is_typing === true) {
+          setTypingUserIds((previous) =>
+            previous.includes(typingUserId)
+              ? previous
+              : [...previous, typingUserId],
+          );
+          typingTimeoutsRef.current[typingUserId] = setTimeout(() => {
+            setTypingUserIds((previous) =>
+              previous.filter((userId) => userId !== typingUserId),
+            );
+            delete typingTimeoutsRef.current[typingUserId];
+          }, 2600);
+        } else if (typingEvent.is_typing === false) {
+          setTypingUserIds((previous) =>
+            previous.filter((userId) => userId !== typingUserId),
+          );
+          delete typingTimeoutsRef.current[typingUserId];
+        }
+      })
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -764,9 +828,20 @@ export default function SocialChatModal({
           ]);
         },
       )
-      .subscribe();
+      .subscribe((subscriptionStatus) => {
+        if (isActive && subscriptionStatus === 'SUBSCRIBED') {
+          typingChannelRef.current = channel;
+        }
+      });
 
     return () => {
+      isActive = false;
+      if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+      if (typingChannelRef.current === channel) typingChannelRef.current = null;
+      Object.values(typingTimeoutsRef.current).forEach(clearTimeout);
+      typingTimeoutsRef.current = {};
+      setTypingUserIds([]);
       void supabase.removeChannel(channel);
     };
   }, [selectedProfile, selectedGroup, session, retention]);
@@ -866,6 +941,47 @@ export default function SocialChatModal({
     await supabase.auth.signOut();
   };
 
+  const sendTypingState = (isTyping: boolean) => {
+    const channel = typingChannelRef.current;
+    if (!channel || !session) return;
+    const now = Date.now();
+    if (isTyping && now - lastTypingBroadcastAtRef.current < 800) return;
+    if (isTyping) lastTypingBroadcastAtRef.current = now;
+
+    void channel
+      .send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { user_id: session.user.id, is_typing: isTyping },
+      })
+      .then((sendStatus) => {
+        if (sendStatus !== 'ok') {
+          setStatus('Schreibstatus ist gerade nicht verfügbar.');
+        }
+      })
+      .catch((error: unknown) => {
+        const detail =
+          error instanceof Error ? error.message : 'Unbekannter Realtime-Fehler.';
+        setStatus(`Schreibstatus konnte nicht aktualisiert werden: ${detail}`);
+      });
+  };
+
+  const handleMessageDraftChange = (value: string) => {
+    setMessageDraft(value);
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    if (!value.trim()) {
+      sendTypingState(false);
+      typingStopTimerRef.current = null;
+      return;
+    }
+
+    sendTypingState(true);
+    typingStopTimerRef.current = setTimeout(() => {
+      sendTypingState(false);
+      typingStopTimerRef.current = null;
+    }, 1800);
+  };
+
   const sendMessage = async () => {
     if (!isSupabaseConfigured) {
       setStatus('Supabase ist nicht konfiguriert.');
@@ -881,14 +997,35 @@ export default function SocialChatModal({
     ) return;
     sendingMessageRef.current = true;
     setSendingMessage(true);
+    const body = messageDraft.trim();
+    const replyToMessageId = replyingTo?.id ?? null;
+    const replySnapshot = replyingTo;
+    const optimisticMessage: ChatMessage = {
+      id: `pending:${session.user.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      sender_id: session.user.id,
+      receiver_id: selectedProfile?.id ?? null,
+      group_id: selectedGroup?.id ?? null,
+      reply_to_message_id: replyToMessageId,
+      body,
+      image_path: null,
+      created_at: new Date().toISOString(),
+    };
     const message = {
       sender_id: session.user.id,
       receiver_id: selectedProfile?.id ?? null,
       group_id: selectedGroup?.id ?? null,
-      reply_to_message_id: replyingTo?.id ?? null,
-      body: messageDraft.trim(),
+      reply_to_message_id: replyToMessageId,
+      body,
       image_path: null,
     };
+    visibleMessageIdsRef.current.add(optimisticMessage.id);
+    setMessages((previous) => [...previous, optimisticMessage]);
+    setMessageDraft('');
+    setReplyingTo(null);
+    setStatus('Nachricht wird gesendet …');
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingStopTimerRef.current = null;
+    sendTypingState(false);
     try {
       const { data, error } = await supabase
         .from('messages')
@@ -897,16 +1034,27 @@ export default function SocialChatModal({
         .single();
       if (error) throw error;
       const sentMessage = data as ChatMessage;
-      setMessages((previous) =>
-        previous.some((item) => item.id === sentMessage.id)
-          ? previous
-          : [...previous, sentMessage],
-      );
+      visibleMessageIdsRef.current.delete(optimisticMessage.id);
+      visibleMessageIdsRef.current.add(sentMessage.id);
+      setMessages((previous) => {
+        const withoutOptimistic = previous.filter(
+          (item) => item.id !== optimisticMessage.id,
+        );
+        return withoutOptimistic.some((item) => item.id === sentMessage.id)
+          ? withoutOptimistic
+          : [...withoutOptimistic, sentMessage];
+      });
       updateChatPreview(sentMessage);
-      setMessageDraft('');
-      setReplyingTo(null);
       setStatus('Nachricht gesendet.');
     } catch (error) {
+      visibleMessageIdsRef.current.delete(optimisticMessage.id);
+      setMessages((previous) =>
+        previous.filter((item) => item.id !== optimisticMessage.id),
+      );
+      setMessageDraft((current) => current || body);
+      if (replySnapshot) {
+        setReplyingTo((current) => current ?? replySnapshot);
+      }
       const detail =
         error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
       setStatus(`Nachricht konnte nicht gesendet werden: ${detail}`);
@@ -1514,6 +1662,17 @@ export default function SocialChatModal({
   const isBlocked = selectedProfile
     ? blockedIds.includes(selectedProfile.id)
     : false;
+  const typingNames = typingUserIds
+    .map(
+      (userId) =>
+        profiles.find((profile) => profile.id === userId)?.display_name,
+    )
+    .filter((name): name is string => Boolean(name));
+  const typingIndicatorText = selectedGroup
+    ? typingNames.length > 1
+      ? 'Mehrere Mitglieder schreiben gerade…'
+      : `${typingNames[0] ?? 'Ein Mitglied'} schreibt gerade…`
+    : 'Schreibt gerade…';
 
   return (
     <Modal
@@ -1950,12 +2109,64 @@ export default function SocialChatModal({
                         )}
                       </View>
                     )}
-                    <ScrollView
-                      style={styles.messageList}
-                      contentContainerStyle={styles.messageContent}
-                    >
-                      {messages.map((message) => {
+                    <View style={styles.messageListWrap}>
+                      <ScrollView
+                        ref={messageScrollRef}
+                        style={styles.messageList}
+                        contentContainerStyle={styles.messageContent}
+                        scrollEventThrottle={16}
+                        onScroll={(event) => {
+                          const {
+                            contentOffset,
+                            contentSize,
+                            layoutMeasurement,
+                          } = event.nativeEvent;
+                          const shouldShowButton =
+                            contentSize.height -
+                              contentOffset.y -
+                              layoutMeasurement.height >
+                            100;
+                          shouldAutoScrollToLatestRef.current = !shouldShowButton;
+                          setShowScrollToLatest((current) =>
+                            current === shouldShowButton
+                              ? current
+                              : shouldShowButton,
+                          );
+                        }}
+                        onContentSizeChange={() => {
+                          if (shouldAutoScrollToLatestRef.current) {
+                            messageScrollRef.current?.scrollToEnd({
+                              animated: true,
+                            });
+                          }
+                        }}
+                      >
+                      {messages.map((message, messageIndex) => {
                         const own = message.sender_id === session.user.id;
+                        const previousMessage = messages[messageIndex - 1];
+                        const nextMessage = messages[messageIndex + 1];
+                        const sameSenderPrevious = Boolean(
+                          previousMessage &&
+                            previousMessage.sender_id === message.sender_id &&
+                            Math.abs(
+                              Date.parse(message.created_at) -
+                                Date.parse(previousMessage.created_at),
+                            ) <= MESSAGE_GROUP_WINDOW_MS,
+                        );
+                        const sameSenderNext = Boolean(
+                          nextMessage &&
+                            nextMessage.sender_id === message.sender_id &&
+                            Math.abs(
+                              Date.parse(nextMessage.created_at) -
+                                Date.parse(message.created_at),
+                            ) <= MESSAGE_GROUP_WINDOW_MS,
+                        );
+                        const isPending = message.id.startsWith('pending:');
+                        const reactionPending =
+                          isPending ||
+                          pendingReactionKeys.includes(
+                            `${message.id}:${session.user.id}`,
+                          );
                         const readsForMessage = messageReads.filter(
                           (read) => read.message_id === message.id,
                         );
@@ -2000,9 +2211,28 @@ export default function SocialChatModal({
                         return (
                           <View
                             key={message.id}
-                            style={[styles.message, own ? styles.own : styles.other]}
+                            style={[
+                              styles.message,
+                              own ? styles.own : styles.other,
+                              sameSenderPrevious && styles.messageGrouped,
+                              sameSenderPrevious
+                                ? own
+                                  ? styles.ownGrouped
+                                  : styles.otherGrouped
+                                : null,
+                              sameSenderPrevious && !sameSenderNext
+                                ? own
+                                  ? styles.ownGroupEnd
+                                  : styles.otherGroupEnd
+                                : null,
+                              !sameSenderPrevious && sameSenderNext
+                                ? own
+                                  ? styles.ownGroupStart
+                                  : styles.otherGroupStart
+                                : null,
+                            ]}
                           >
-                            {selectedGroup && !own && (
+                            {selectedGroup && !own && !sameSenderPrevious && (
                               <Text style={styles.messageSender}>
                                 {profiles.find((profile) => profile.id === message.sender_id)
                                   ?.display_name ?? 'Mitglied'}
@@ -2092,20 +2322,14 @@ export default function SocialChatModal({
                                     style={[
                                       styles.reactionChip,
                                       reacted && styles.reactionChipActive,
-                                      pendingReactionKeys.includes(
-                                        `${message.id}:${session.user.id}`,
-                                      ) && styles.reactionChipPending,
+                                      reactionPending && styles.reactionChipPending,
                                     ]}
                                     accessibilityRole="button"
                                     accessibilityState={{
                                       selected: reacted,
-                                      disabled: pendingReactionKeys.includes(
-                                        `${message.id}:${session.user.id}`,
-                                      ),
+                                      disabled: reactionPending,
                                     }}
-                                    disabled={pendingReactionKeys.includes(
-                                      `${message.id}:${session.user.id}`,
-                                    )}
+                                    disabled={reactionPending}
                                     onPress={() =>
                                       void toggleReaction(message.id, emoji)
                                     }
@@ -2117,8 +2341,22 @@ export default function SocialChatModal({
                                 );
                               })}
                             </View>
-                            {own && (
-                              <Text style={styles.readReceipt}>{readReceipt}</Text>
+                            {(!sameSenderNext || isPending) && (
+                              <View
+                                style={[
+                                  styles.messageMeta,
+                                  own ? styles.messageMetaOwn : styles.messageMetaOther,
+                                ]}
+                              >
+                                <Text style={styles.messageTimestamp}>
+                                  {formatMessageTime(message.created_at)}
+                                </Text>
+                                {own && (
+                                  <Text style={styles.readReceipt}>
+                                    {isPending ? 'Wird gesendet…' : readReceipt}
+                                  </Text>
+                                )}
+                              </View>
                             )}
                             {!own && (
                               <View style={styles.messageReportRow}>
@@ -2149,22 +2387,29 @@ export default function SocialChatModal({
                             )}
                             <View style={styles.messageActions}>
                               <TouchableOpacity
-                                disabled={isBlocked}
+                                disabled={isBlocked || isPending}
                                 onPress={() => {
                                   setReplyingTo(message);
                                   setStatus('');
                                 }}
                               >
-                                <Text style={[styles.messageAction, isBlocked && styles.disabledText]}>
+                                <Text style={[
+                                  styles.messageAction,
+                                  (isBlocked || isPending) && styles.disabledText,
+                                ]}>
                                   Antworten
                                 </Text>
                               </TouchableOpacity>
                               {own && (
                                 <TouchableOpacity
-                                  disabled={deletingMessageId !== null}
+                                  disabled={isPending || deletingMessageId !== null}
                                   onPress={() => setConfirmDeleteMessageId(message.id)}
                                 >
-                                  <Text style={[styles.messageDelete, deletingMessageId !== null && styles.disabledText]}>
+                                  <Text style={[
+                                    styles.messageDelete,
+                                    (isPending || deletingMessageId !== null) &&
+                                      styles.disabledText,
+                                  ]}>
                                     Löschen
                                   </Text>
                                 </TouchableOpacity>
@@ -2195,6 +2440,31 @@ export default function SocialChatModal({
                         );
                       })}
                     </ScrollView>
+                    {showScrollToLatest && messages.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.scrollLatestButton}
+                        onPress={() => {
+                          shouldAutoScrollToLatestRef.current = true;
+                          setShowScrollToLatest(false);
+                          messageScrollRef.current?.scrollToEnd({ animated: true });
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Zur neuesten Nachricht scrollen"
+                      >
+                        <Text style={styles.scrollLatestText}>↓ Neueste Nachricht</Text>
+                      </TouchableOpacity>
+                    )}
+                    </View>
+                    {typingUserIds.length > 0 && (
+                      <View style={styles.typingIndicator} accessibilityLiveRegion="polite">
+                        <View style={styles.typingDots}>
+                          <View style={styles.typingDot} />
+                          <View style={styles.typingDot} />
+                          <View style={styles.typingDot} />
+                        </View>
+                        <Text style={styles.typingText}>{typingIndicatorText}</Text>
+                      </View>
+                    )}
                     <View style={styles.composerArea}>
                       {replyingTo && (
                         <View style={styles.replyComposer}>
@@ -2242,7 +2512,7 @@ export default function SocialChatModal({
                         <TextInput
                           style={styles.messageInput}
                           value={messageDraft}
-                          onChangeText={setMessageDraft}
+                          onChangeText={handleMessageDraftChange}
                           placeholder="Nachricht..."
                           placeholderTextColor="#71717A"
                           maxLength={1000}
@@ -2627,37 +2897,99 @@ const styles = StyleSheet.create({
     color: '#FFF',
     marginBottom: 8,
   },
-  messageList: { flex: 1, backgroundColor: '#09090B', borderRadius: 10 },
-  messageContent: { padding: 10, gap: 7 },
+  messageListWrap: {
+    flex: 1,
+    minHeight: 0,
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: aspectTheme.radius.lg,
+  },
+  messageList: {
+    flex: 1,
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.lg,
+  },
+  messageContent: {
+    flexGrow: 1,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.xs,
+  },
   message: {
-    maxWidth: '78%',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    maxWidth: '84%',
+    borderRadius: aspectTheme.radius.lg,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
   },
-  own: { alignSelf: 'flex-end', backgroundColor: '#E11D48' },
-  other: { alignSelf: 'flex-start', backgroundColor: '#27272A' },
-  messageText: { color: '#FFF', fontSize: 13 },
+  own: {
+    alignSelf: 'flex-end',
+    backgroundColor: aspectTheme.colors.accent,
+  },
+  other: {
+    alignSelf: 'flex-start',
+    backgroundColor: aspectTheme.colors.surfacePressed,
+  },
+  messageGrouped: { marginTop: -aspectTheme.spacing.xs },
+  ownGroupStart: { borderBottomRightRadius: aspectTheme.radius.xs },
+  ownGrouped: {
+    borderTopRightRadius: aspectTheme.radius.xs,
+    borderBottomRightRadius: aspectTheme.radius.xs,
+  },
+  ownGroupEnd: { borderBottomRightRadius: aspectTheme.radius.lg },
+  otherGroupStart: { borderBottomLeftRadius: aspectTheme.radius.xs },
+  otherGrouped: {
+    borderTopLeftRadius: aspectTheme.radius.xs,
+    borderBottomLeftRadius: aspectTheme.radius.xs,
+  },
+  otherGroupEnd: { borderBottomLeftRadius: aspectTheme.radius.lg },
+  messageText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.bodyLarge,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
   replyQuote: {
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: 'rgba(0,0,0,0.22)',
     borderLeftWidth: 2,
-    borderLeftColor: '#FDA4AF',
-    borderRadius: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    marginBottom: 5,
+    borderLeftColor: aspectTheme.colors.accentText,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.sm,
+    paddingVertical: aspectTheme.spacing.xs,
+    marginBottom: aspectTheme.spacing.xs,
   },
-  replyQuoteLabel: { color: '#FDA4AF', fontSize: 9, fontWeight: '800' },
-  replyQuoteText: { color: '#E4E4E7', fontSize: 10, marginTop: 2 },
+  replyQuoteLabel: {
+    color: aspectTheme.colors.accentText,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  replyQuoteText: {
+    color: aspectTheme.colors.textSecondary,
+    fontSize: aspectTheme.typography.caption,
+    lineHeight: aspectTheme.typography.lineBody,
+    marginTop: aspectTheme.spacing.xxs,
+  },
   messageSender: {
-    color: '#FDA4AF',
-    fontSize: 10,
-    fontWeight: '800',
-    marginBottom: 3,
+    color: aspectTheme.colors.accentText,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.heavy,
+    marginBottom: aspectTheme.spacing.xxs,
   },
-  messageActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 5 },
-  messageAction: { color: '#E4E4E7', fontSize: 9, fontWeight: '800' },
-  messageDelete: { color: '#FECACA', fontSize: 9, fontWeight: '800' },
+  messageActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.md,
+    marginTop: aspectTheme.spacing.xs,
+  },
+  messageAction: {
+    color: aspectTheme.colors.textSecondary,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
+  messageDelete: {
+    color: aspectTheme.colors.status.error.text,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
   disabledText: { opacity: 0.55 },
   deleteConfirmation: {
     flexDirection: 'row',
@@ -2670,20 +3002,26 @@ const styles = StyleSheet.create({
   reactionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
-    marginTop: 6,
+    gap: aspectTheme.spacing.xxs,
+    marginTop: aspectTheme.spacing.xs,
   },
   reactionChip: {
     backgroundColor: 'rgba(0,0,0,0.2)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    borderColor: 'rgba(255,255,255,0.18)',
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.sm,
+    paddingVertical: aspectTheme.spacing.xxs,
   },
-  reactionChipActive: { borderColor: '#FDA4AF', backgroundColor: '#54182A' },
+  reactionChipActive: {
+    borderColor: aspectTheme.colors.accentText,
+    backgroundColor: aspectTheme.colors.accentSoft,
+  },
   reactionChipPending: { opacity: 0.6 },
-  reactionText: { color: '#FFF', fontSize: 10 },
+  reactionText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.caption,
+  },
   messageImageWrap: {
     width: 200,
     maxWidth: '100%',
@@ -2708,34 +3046,50 @@ const styles = StyleSheet.create({
   },
   imageErrorText: { color: '#FECACA', fontSize: 10 },
   imageRetryText: { color: '#FDA4AF', fontSize: 10, fontWeight: '800' },
+  messageMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: aspectTheme.spacing.xs,
+    marginTop: aspectTheme.spacing.xs,
+  },
+  messageMetaOwn: { justifyContent: 'flex-end' },
+  messageMetaOther: { justifyContent: 'flex-start' },
+  messageTimestamp: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.caption,
+  },
   readReceipt: {
-    color: '#FBCFE8',
-    fontSize: 9,
-    fontWeight: '800',
+    color: aspectTheme.colors.accentText,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.strong,
     textAlign: 'right',
-    marginTop: 4,
   },
   messageReport: {
-    color: '#FDE68A',
-    fontSize: 9,
-    fontWeight: '800',
-    marginTop: 5,
+    color: aspectTheme.colors.status.review.text,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.strong,
+    marginTop: aspectTheme.spacing.xs,
   },
-  messageReportRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  composerArea: { gap: 6, marginTop: 8 },
+  messageReportRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.sm,
+  },
+  composerArea: { gap: aspectTheme.spacing.sm, marginTop: aspectTheme.spacing.md },
   replyComposer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#27272A',
+    gap: aspectTheme.spacing.sm,
+    backgroundColor: aspectTheme.colors.surfacePressed,
     borderLeftWidth: 3,
-    borderLeftColor: '#FDA4AF',
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
+    borderLeftColor: aspectTheme.colors.accent,
+    borderRadius: aspectTheme.radius.md,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
   },
   replyComposerText: { flex: 1, minWidth: 0 },
-  composer: { flexDirection: 'row', gap: 7 },
+  composer: { flexDirection: 'row', gap: aspectTheme.spacing.sm },
   imageButton: {
     backgroundColor: '#27272A',
     borderRadius: 999,
@@ -2745,18 +3099,66 @@ const styles = StyleSheet.create({
   imageButtonText: { color: '#E4E4E7', fontSize: 11, fontWeight: '800' },
   messageInput: {
     flex: 1,
-    backgroundColor: '#09090B',
-    borderColor: '#27272A',
+    minHeight: 44,
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.border,
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    color: '#FFF',
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.lg,
+    color: aspectTheme.colors.textPrimary,
   },
   send: {
-    backgroundColor: '#E11D48',
-    borderRadius: 999,
+    backgroundColor: aspectTheme.colors.accent,
+    borderRadius: aspectTheme.radius.pill,
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: aspectTheme.spacing.lg,
+  },
+  scrollLatestButton: {
+    position: 'absolute',
+    right: aspectTheme.spacing.md,
+    bottom: aspectTheme.spacing.md,
+    backgroundColor: aspectTheme.colors.surfaceRaised,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  scrollLatestText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: aspectTheme.spacing.sm,
+    backgroundColor: aspectTheme.colors.surface,
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.xs,
+    marginTop: aspectTheme.spacing.xs,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: aspectTheme.spacing.xxs,
+  },
+  typingDot: {
+    width: 5,
+    height: 5,
+    borderRadius: aspectTheme.radius.pill,
+    backgroundColor: aspectTheme.colors.accentText,
+  },
+  typingText: {
+    color: aspectTheme.colors.textSecondary,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.medium,
   },
   disabled: { opacity: 0.45 },
   emptyChat: { flex: 1, alignItems: 'center', justifyContent: 'center' },
