@@ -120,7 +120,10 @@ export default function SocialChatModal({
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [status, setStatus] = useState('');
+  const [reportedUserId, setReportedUserId] = useState<string | null>(null);
   const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [blockingUserId, setBlockingUserId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
 
   const isExpiredMessage = (createdAt: string, mode: RetentionOption): boolean => {
@@ -495,6 +498,10 @@ export default function SocialChatModal({
         setUserTab('active');
         setSelectedProfile(null);
         setSelectedGroup(null);
+        setReportedUserId(null);
+        setReportedMessageId(null);
+        setReportReason('');
+        setReportSubmitting(false);
         setGroups([]);
         setLastMessages({});
         setMessages([]);
@@ -1062,6 +1069,9 @@ export default function SocialChatModal({
     setGroups((previous) => [group, ...previous.filter((item) => item.id !== group.id)]);
     setSelectedProfile(null);
     setSelectedGroup(group);
+    setReportedUserId(null);
+    setReportedMessageId(null);
+    setReportReason('');
     setGroupNameDraft('');
     setGroupMemberIds([]);
     setStatus('Gruppenchat erstellt.');
@@ -1190,30 +1200,52 @@ export default function SocialChatModal({
       setStatus('Supabase ist nicht konfiguriert.');
       return;
     }
-    if (!session || !selectedProfile) return;
-    const targetProfile = selectedProfile;
-    const { error } = await supabase.from('blocked_users').insert({
-      blocker_id: session.user.id,
-      blocked_id: targetProfile.id,
-    });
-    if (error) {
-      setStatus(error.message);
+    if (!session) {
+      setStatus('Bitte melde dich an, um Nutzer zu blockieren.');
       return;
     }
-    setBlockedIds((prev) =>
-      prev.includes(targetProfile.id) ? prev : [...prev, targetProfile.id],
-    );
-    setProfiles((prev) => prev.filter((profile) => profile.id !== targetProfile.id));
-    setBlockedProfiles((prev) =>
-      prev.some((profile) => profile.id === targetProfile.id)
-        ? prev
-        : [...prev, targetProfile].sort((a, b) =>
-            a.display_name.localeCompare(b.display_name),
-          ),
-    );
-    setSelectedProfile(null);
-    setMessages([]);
-    setStatus('Nutzer wurde blockiert.');
+    if (!selectedProfile || blockingUserId) return;
+    const targetProfile = selectedProfile;
+    setBlockingUserId(targetProfile.id);
+    setStatus('Blockierung wird gespeichert …');
+    try {
+      const { error } = await supabase.from('blocked_users').upsert(
+        {
+          blocker_id: session.user.id,
+          blocked_id: targetProfile.id,
+        },
+        { onConflict: 'blocker_id,blocked_id', ignoreDuplicates: true },
+      );
+      if (error) throw error;
+
+      setBlockedIds((previous) =>
+        previous.includes(targetProfile.id)
+          ? previous
+          : [...previous, targetProfile.id],
+      );
+      setProfiles((previous) =>
+        previous.filter((profile) => profile.id !== targetProfile.id),
+      );
+      setBlockedProfiles((previous) =>
+        previous.some((profile) => profile.id === targetProfile.id)
+          ? previous
+          : [...previous, targetProfile].sort((a, b) =>
+              a.display_name.localeCompare(b.display_name),
+            ),
+      );
+      setSelectedProfile(null);
+      setMessages([]);
+      setReportedUserId(null);
+      setReportedMessageId(null);
+      setReportReason('');
+      setStatus('Nutzer wurde blockiert. Neue Direktnachrichten mit diesem Nutzer sind gesperrt.');
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      setStatus(`Nutzer konnte nicht blockiert werden: ${detail}`);
+    } finally {
+      setBlockingUserId(null);
+    }
   };
 
   const unblockUserById = async (targetUserId: string) => {
@@ -1221,19 +1253,33 @@ export default function SocialChatModal({
       setStatus('Supabase ist nicht konfiguriert.');
       return;
     }
-    if (!session) return;
-    const { error } = await supabase
-      .from('blocked_users')
-      .delete()
-      .eq('blocker_id', session.user.id)
-      .eq('blocked_id', targetUserId);
-    if (error) {
-      setStatus(error.message);
+    if (!session) {
+      setStatus('Bitte melde dich an, um die Blockierung aufzuheben.');
       return;
     }
-    setBlockedIds((prev) => prev.filter((id) => id !== targetUserId));
-    setStatus('Blockierung aufgehoben.');
-    await loadProfiles(session.user.id);
+    if (blockingUserId) return;
+    setBlockingUserId(targetUserId);
+    setStatus('Blockierung wird aufgehoben …');
+    try {
+      const { error } = await supabase
+        .from('blocked_users')
+        .delete()
+        .eq('blocker_id', session.user.id)
+        .eq('blocked_id', targetUserId);
+      if (error) throw error;
+
+      setBlockedIds((previous) =>
+        previous.filter((id) => id !== targetUserId),
+      );
+      setStatus('Blockierung aufgehoben.');
+      await loadProfiles(session.user.id);
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      setStatus(`Blockierung konnte nicht aufgehoben werden: ${detail}`);
+    } finally {
+      setBlockingUserId(null);
+    }
   };
 
   const unblockUser = async () => {
@@ -1241,25 +1287,54 @@ export default function SocialChatModal({
     await unblockUserById(selectedProfile.id);
   };
 
-  const reportUser = async () => {
+  const reportUser = async (
+    targetUserId = reportedUserId ?? selectedProfile?.id ?? null,
+    messageId = reportedMessageId,
+    reasonText = reportReason,
+  ) => {
     if (!isSupabaseConfigured) {
       setStatus('Supabase ist nicht konfiguriert.');
       return;
     }
-    if (!session || !selectedProfile || !reportReason.trim()) {
-      setStatus('Bitte einen Meldegrund eingeben.');
+    if (reportSubmitting) return;
+    if (!session) {
+      setStatus('Bitte melde dich an, um eine Meldung abzusenden.');
       return;
     }
-    const { error } = await supabase.from('reports').insert({
-      reporter_id: session.user.id,
-      reported_user_id: selectedProfile.id,
-      reason: reportReason.trim(),
-      message_id: reportedMessageId,
-    });
-    setStatus(error ? error.message : 'Meldung wurde abgesendet.');
-    if (!error) {
+    if (!targetUserId) {
+      setStatus('Bitte wähle einen Nutzer oder eine Nachricht zum Melden aus.');
+      return;
+    }
+    if (targetUserId === session.user.id) {
+      setStatus('Du kannst dich nicht selbst melden.');
+      return;
+    }
+    const reason = reasonText.trim();
+    if (reason.length < 3 || reason.length > 500) {
+      setStatus('Der Meldegrund muss zwischen 3 und 500 Zeichen lang sein.');
+      return;
+    }
+    setReportSubmitting(true);
+    setStatus('Meldung wird übermittelt …');
+    try {
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: session.user.id,
+        reported_user_id: targetUserId,
+        reason,
+        message_id: messageId,
+      });
+      if (error) throw error;
+
+      setStatus('Meldung wurde abgesendet. Danke für deinen Hinweis.');
       setReportReason('');
+      setReportedUserId(null);
       setReportedMessageId(null);
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      setStatus(`Meldung konnte nicht abgesendet werden: ${detail}`);
+    } finally {
+      setReportSubmitting(false);
     }
   };
 
@@ -1578,6 +1653,9 @@ export default function SocialChatModal({
                           setSelectedProfile(null);
                           setSelectedGroup(group);
                           setGroupCreatorOpen(false);
+                          setReportedUserId(null);
+                          setReportedMessageId(null);
+                          setReportReason('');
                         }}
                       >
                         <Text style={styles.profileName}>◉ {group.name}</Text>
@@ -1596,6 +1674,7 @@ export default function SocialChatModal({
                         onPress={() => {
                           setSelectedProfile(profile);
                           setSelectedGroup(null);
+                          setReportedUserId(null);
                           setReportedMessageId(null);
                           setReportReason('');
                         }}
@@ -1632,9 +1711,12 @@ export default function SocialChatModal({
                           </View>
                           <TouchableOpacity
                             style={styles.unblockButton}
+                            disabled={blockingUserId !== null}
                             onPress={() => void unblockUserById(profile.id)}
                           >
-                            <Text style={styles.unblockText}>Entblocken</Text>
+                            <Text style={styles.unblockText}>
+                              {blockingUserId === profile.id ? 'Wird aufgehoben …' : 'Entblocken'}
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       ))
@@ -1713,21 +1795,31 @@ export default function SocialChatModal({
                             : `@${selectedProfile?.handle ?? ''}`}
                         </Text>
                       </View>
-                      {selectedProfile && (
+                      {(selectedProfile || reportedMessageId) && (
                         <View style={styles.chatActions}>
-                          <TouchableOpacity
-                            style={styles.secondary}
-                            onPress={isBlocked ? unblockUser : blockUser}
-                          >
-                            <Text style={styles.secondaryText}>
-                              {isBlocked ? 'Entblocken' : 'Blockieren'}
-                            </Text>
-                          </TouchableOpacity>
+                          {selectedProfile && (
+                            <TouchableOpacity
+                              style={styles.secondary}
+                              disabled={blockingUserId !== null}
+                              onPress={isBlocked ? unblockUser : blockUser}
+                            >
+                              <Text style={styles.secondaryText}>
+                                {blockingUserId === selectedProfile.id
+                                  ? 'Bitte warten …'
+                                  : isBlocked
+                                    ? 'Entblocken'
+                                    : 'Blockieren'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
                           <TouchableOpacity
                             style={styles.reportButton}
-                            onPress={reportUser}
+                            disabled={reportSubmitting}
+                            onPress={() => void reportUser()}
                           >
-                            <Text style={styles.reportText}>Melden</Text>
+                            <Text style={styles.reportText}>
+                              {reportSubmitting ? 'Wird gesendet …' : 'Melden'}
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -1756,14 +1848,30 @@ export default function SocialChatModal({
                       ))}
                     </View>
 
-                    {selectedProfile && (
-                      <TextInput
-                        style={styles.reportInput}
-                        value={reportReason}
-                        onChangeText={setReportReason}
-                        placeholder="Meldegrund"
-                        placeholderTextColor="#71717A"
-                      />
+                    {(selectedProfile || reportedMessageId) && (
+                      <View>
+                        <TextInput
+                          style={styles.reportInput}
+                          value={reportReason}
+                          onChangeText={setReportReason}
+                          placeholder="Meldegrund (3-500 Zeichen)"
+                          placeholderTextColor="#71717A"
+                          maxLength={500}
+                        />
+                        {reportedMessageId && (
+                          <TouchableOpacity
+                            disabled={reportSubmitting}
+                            onPress={() => {
+                              setReportedUserId(null);
+                              setReportedMessageId(null);
+                              setReportReason('');
+                              setStatus('');
+                            }}
+                          >
+                            <Text style={styles.messageAction}>Meldung abbrechen</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                     )}
                     <ScrollView
                       style={styles.messageList}
@@ -1935,11 +2043,21 @@ export default function SocialChatModal({
                             {own && (
                               <Text style={styles.readReceipt}>{readReceipt}</Text>
                             )}
-                            {!own && selectedProfile && (
+                            {!own && (
                               <TouchableOpacity
+                                disabled={reportSubmitting}
                                 onPress={() => {
+                                  setReportedUserId(message.sender_id);
                                   setReportedMessageId(message.id);
-                                  setStatus('Meldegrund eingeben und anschließend „Melden“ wählen.');
+                                  if (reportReason.trim().length >= 3) {
+                                    void reportUser(
+                                      message.sender_id,
+                                      message.id,
+                                      reportReason,
+                                    );
+                                  } else {
+                                    setStatus('Meldegrund eingeben und anschließend oben auf „Melden“ tippen.');
+                                  }
                                 }}
                               >
                                 <Text style={styles.messageReport}>Nachricht melden</Text>
