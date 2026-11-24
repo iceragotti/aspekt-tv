@@ -57,6 +57,11 @@ const REACTION_OPTIONS = ['❤️', '😂', '👍', '😮'] as const;
 interface SocialChatModalProps {
   visible: boolean;
   onClose: () => void;
+  prefillMessage?: {
+    id: string;
+    label: string;
+    text: string;
+  } | null;
 }
 
 const RETENTION_MS: Record<Exclude<RetentionOption, 'off'>, number> = {
@@ -76,6 +81,7 @@ const CHAT_IMAGE_MIME_TYPES = [
 export default function SocialChatModal({
   visible,
   onClose,
+  prefillMessage,
 }: SocialChatModalProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -96,6 +102,7 @@ export default function SocialChatModal({
   const [messageReactions, setMessageReactions] = useState<MessageReaction[]>([]);
   const [pendingReactionKeys, setPendingReactionKeys] = useState<string[]>([]);
   const pendingReactionKeysRef = useRef(new Set<string>());
+  const appliedPrefillIdRef = useRef<string | null>(null);
   const reactionRevisionRef = useRef(0);
   const chatLoadRevisionRef = useRef(0);
   const readRevisionRef = useRef(0);
@@ -127,6 +134,31 @@ export default function SocialChatModal({
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [blockingUserId, setBlockingUserId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const prefillId = prefillMessage?.id;
+  const prefillLabel = prefillMessage?.label;
+  const prefillText = prefillMessage?.text;
+
+  useEffect(() => {
+    if (!visible || !prefillId || !prefillText) {
+      if (!visible) appliedPrefillIdRef.current = null;
+      return;
+    }
+    if (appliedPrefillIdRef.current === prefillId) return;
+
+    appliedPrefillIdRef.current = prefillId;
+    const contextText = prefillText.trim();
+    const currentDraft = messageDraft.trim();
+    const nextDraft = [currentDraft, contextText].filter(Boolean).join('\n\n');
+    if (nextDraft.length > 1000) {
+      setStatus('Der Chat-Entwurf ist zu lang für den Bezug. Kürze ihn und wähle den Bezug erneut.');
+      return;
+    }
+
+    setMessageDraft(nextDraft);
+    setStatus(
+      `${prefillLabel ?? 'Der Bezug'} wurde in den Nachrichtenentwurf übernommen. Wähle einen Nutzer oder Gruppenchat aus.`,
+    );
+  }, [visible, prefillId, prefillLabel, prefillText, messageDraft]);
 
   const isExpiredMessage = (createdAt: string, mode: RetentionOption): boolean => {
     if (mode === 'off') return false;

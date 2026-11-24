@@ -22,6 +22,12 @@ type PulseReaction = '❤️' | '😂' | '👍' | '😮';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
 
+interface ChatPrefill {
+  id: string;
+  label: string;
+  text: string;
+}
+
 const PULSE_REACTIONS: PulseReaction[] = ['❤️', '😂', '👍', '😮'];
 
 interface Article {
@@ -292,6 +298,7 @@ export default function App() {
   const [newShortRating, setNewShortRating] = useState<AgeRating>('Alle');
   const [shortCommentsOpen, setShortCommentsOpen] = useState(false);
   const [socialChatVisible, setSocialChatVisible] = useState(false);
+  const [chatPrefill, setChatPrefill] = useState<ChatPrefill | null>(null);
 
   useEffect(() => {
     const storage = getWebStorage();
@@ -638,6 +645,28 @@ export default function App() {
     setStoryNotice(null);
   };
 
+  const openChatWithContext = (
+    kind: 'PULSE-Beitrag' | 'Story',
+    id: string,
+    creator: string,
+    text: string,
+  ) => {
+    const trimmedText = text.trim();
+    const excerpt =
+      trimmedText.length > 650 ? `${trimmedText.slice(0, 650)}…` : trimmedText;
+    setChatPrefill({
+      id: `${kind}:${id}:${Date.now()}`,
+      label: kind,
+      text: `Bezug: ${kind} von ${creator}\n„${excerpt}“\n\n`,
+    });
+    setStoryIndex(null);
+    setSocialChatVisible(true);
+    showPulseNotice(
+      `${kind} ausgewählt. Der Bezug wird in den Direktchat-Entwurf übernommen.`,
+      'success',
+    );
+  };
+
   const toggleStoryReaction = (storyId: string, reaction: PulseReaction) => {
     setStories((previous) => previous.map((story) => story.id === storyId
       ? { ...story, ...nextReactionState(story.reactions, story.myReaction, reaction) }
@@ -944,6 +973,19 @@ export default function App() {
                           </Text>
                         </View>
                       )}
+                      <TouchableOpacity
+                        style={styles.chatContextButton}
+                        onPress={() => openChatWithContext(
+                          'Story',
+                          visibleStories[storyIndex].id,
+                          visibleStories[storyIndex].creator,
+                          visibleStories[storyIndex].text,
+                        )}
+                      >
+                        <Text style={styles.chatContextButtonText}>
+                          Story im Direktchat besprechen
+                        </Text>
+                      </TouchableOpacity>
                       <View style={styles.modalActions}>
                         <TouchableOpacity onPress={() => changeStory(-1)}><Text style={styles.modalAction}>Zurück</Text></TouchableOpacity>
                         <TouchableOpacity onPress={() => { setStoryNotice(null); setStoryIndex(null); }}><Text style={styles.modalAction}>Schließen</Text></TouchableOpacity>
@@ -1057,6 +1099,14 @@ export default function App() {
                     </TouchableOpacity>
                     <Text style={styles.actionText}>○ {post.comments.length}</Text>
                     <TouchableOpacity onPress={sharePost}><Text style={styles.actionText}>↗ Teilen</Text></TouchableOpacity>
+                    <TouchableOpacity onPress={() => openChatWithContext(
+                      'PULSE-Beitrag',
+                      post.id,
+                      post.creator,
+                      post.text,
+                    )}>
+                      <Text style={styles.actionText}>Im Direktchat besprechen</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => toggleSavedShort(post.id)}>
                       <Text style={styles.actionText}>{post.saved ? '★ Gemerkt' : '☆ Merken'}</Text>
                     </TouchableOpacity>
@@ -1579,7 +1629,11 @@ export default function App() {
 
       <SocialChatModal
         visible={socialChatVisible}
-        onClose={() => setSocialChatVisible(false)}
+        prefillMessage={chatPrefill}
+        onClose={() => {
+          setSocialChatVisible(false);
+          setChatPrefill(null);
+        }}
       />
 
       {selectedArticle && (
@@ -1713,6 +1767,8 @@ const styles = StyleSheet.create({
   chatButtonRow: { flexDirection: 'row', justifyContent: 'flex-end', alignSelf: 'stretch', marginTop: 2, marginBottom: 2 },
   chatButton: { backgroundColor: '#27272A', borderColor: '#3F3F46', borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   chatButtonText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+  chatContextButton: { backgroundColor: '#7F1D1D', borderColor: '#E11D48', borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, alignItems: 'center' },
+  chatContextButtonText: { color: '#FFF', fontSize: 11, fontWeight: '900' },
   content: { gap: 14, paddingHorizontal: 16, paddingBottom: 28 },
   searchRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   search: { flex: 1, minWidth: 220, backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 10, color: '#FFF' },
