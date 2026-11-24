@@ -24,6 +24,7 @@ type PulseReaction = '❤️' | '😂' | '👍' | '😮';
 type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
+type SupportTab = 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
 
 interface ChatPrefill {
   id: string;
@@ -105,9 +106,13 @@ interface AppState {
   shortsFeed: 'Für Dich' | 'Gefolgt';
   shortsIndex: number;
   pulseFeedFilter?: PulseFeedFilter;
+  supportPaymentUrl?: string;
+  supporterPreviewEnabled?: boolean;
 }
 
 const TODAY = '23. November 2026';
+const SUPPORT_PAYMENT_URL_PATTERN =
+  /^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?(?:[/?#][^\s]*)?$/i;
 
 const INITIAL_ARTICLES: Article[] = [
   {
@@ -242,7 +247,7 @@ const nextReactionState = (
 
 export default function App() {
   const [initial] = useState(loadState);
-  const [tab, setTab] = useState<'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz'>('News');
+  const [tab, setTab] = useState<SupportTab>('News');
   const [articles, setArticles] = useState<Article[]>(initial.articles ?? INITIAL_ARTICLES);
   const [posts, setPosts] = useState<SocialPost[]>(initial.posts ?? INITIAL_POSTS);
   const [stories, setStories] = useState<Story[]>(initial.stories ?? INITIAL_STORIES);
@@ -310,6 +315,19 @@ export default function App() {
     initial.shortsFeed ?? 'Für Dich',
   );
   const [shortsIndex, setShortsIndex] = useState(initial.shortsIndex ?? 0);
+  const [supportPaymentUrl, setSupportPaymentUrl] = useState(
+    initial.supportPaymentUrl ?? '',
+  );
+  const [supportUrlDraft, setSupportUrlDraft] = useState(
+    initial.supportPaymentUrl ?? '',
+  );
+  const [supporterPreviewEnabled, setSupporterPreviewEnabled] = useState(
+    initial.supporterPreviewEnabled ?? false,
+  );
+  const [supportNotice, setSupportNotice] = useState<{
+    message: string;
+    tone: PulseNoticeTone;
+  } | null>(null);
   const [shortsPlaying, setShortsPlaying] = useState(true);
   const [shortsMuted, setShortsMuted] = useState(false);
   const [newShortTitle, setNewShortTitle] = useState('');
@@ -329,10 +347,11 @@ export default function App() {
         crisisChecklist: checklist, history: cmsHistory,
         blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
         pulseFeedFilter,
+        supportPaymentUrl, supporterPreviewEnabled,
         dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
       }));
     } catch {}
-  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
+  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, supportPaymentUrl, supporterPreviewEnabled, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -722,12 +741,84 @@ export default function App() {
     showPostNotice(postId, 'Deine Reaktion wurde gespeichert.', 'success');
   };
 
+  const saveSupportPaymentLink = () => {
+    const normalizedUrl = supportUrlDraft.trim();
+    if (!normalizedUrl) {
+      setSupportPaymentUrl('');
+      setSupportUrlDraft('');
+      setSupportNotice({
+        message: 'Der Zahlungs-Link wurde entfernt. Unterstützung ist derzeit deaktiviert.',
+        tone: 'info',
+      });
+      return;
+    }
+    if (!SUPPORT_PAYMENT_URL_PATTERN.test(normalizedUrl)) {
+      setSupportNotice({
+        message: supportPaymentUrl
+          ? 'Bitte gib einen gültigen HTTPS-Link ein. Der bisher gespeicherte Link bleibt aktiv.'
+          : 'Bitte gib einen gültigen externen HTTPS-Zahlungs-Link ein.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    setSupportPaymentUrl(normalizedUrl);
+    setSupportUrlDraft(normalizedUrl);
+    setSupportNotice({
+      message: 'Zahlungs-Link gespeichert. Die Unterstützung wird extern abgewickelt.',
+      tone: 'success',
+    });
+  };
+
+  const openSupportPayment = async () => {
+    if (!supportPaymentUrl) {
+      setSupportNotice({
+        message: 'Es ist noch kein Zahlungs-Link konfiguriert.',
+        tone: 'error',
+      });
+      return;
+    }
+    if (!SUPPORT_PAYMENT_URL_PATTERN.test(supportPaymentUrl)) {
+      setSupportNotice({
+        message: 'Der gespeicherte Zahlungs-Link ist ungültig. Bitte konfiguriere einen HTTPS-Link neu.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    try {
+      await Linking.openURL(supportPaymentUrl);
+      setSupportNotice({
+        message: 'Zahlungsseite geöffnet. Die Zahlung erfolgt außerhalb der App.',
+        tone: 'success',
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : '';
+      setSupportNotice({
+        message: `Die Zahlungsseite konnte nicht geöffnet werden.${detail}`,
+        tone: 'error',
+      });
+    }
+  };
+
+  const toggleSupporterPreview = () => {
+    const next = !supporterPreviewEnabled;
+    setSupporterPreviewEnabled(next);
+    setSupportNotice({
+      message: next
+        ? 'Supporter-Badge-Vorschau aktiviert. Dies ist keine Zahlungsbestätigung.'
+        : 'Supporter-Badge-Vorschau deaktiviert.',
+      tone: 'info',
+    });
+  };
+
   const exportData = () => {
     const storage = getWebStorage();
     const payload = storage?.getItem(STORAGE_KEY) ?? JSON.stringify({
       articles, posts, stories, ageMode, breakingApproved, crisisChecklist: checklist,
       history: cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
       pulseFeedFilter,
+      supportPaymentUrl, supporterPreviewEnabled,
       dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
     });
     if (Platform.OS === 'web') {
@@ -765,6 +856,10 @@ export default function App() {
     setCmsHistory([]);
     setFollowed([]);
     setPulseFeedFilter('Alle');
+    setSupportPaymentUrl('');
+    setSupportUrlDraft('');
+    setSupporterPreviewEnabled(false);
+    setSupportNotice(null);
     setShortsFeed('Für Dich');
     setShortsIndex(0);
     setShortsPlaying(true);
@@ -875,6 +970,11 @@ export default function App() {
             <Text style={styles.brand}>ASPEKT<Text style={styles.brandAccent}>.TV</Text></Text>
           </TouchableOpacity>
           <View style={styles.topActions}>
+            {supporterPreviewEnabled && (
+              <View style={styles.supporterHeaderBadge}>
+                <Text style={styles.supporterHeaderBadgeText}>Supporter · TEST</Text>
+              </View>
+            )}
             <View style={[styles.ageBadge, ageMode === '18+' ? styles.ageAdult : styles.ageMinor]}>
               <Text style={styles.badgeText}>{ageMode === '18+' ? '18+' : 'U18'}</Text>
             </View>
@@ -921,12 +1021,12 @@ export default function App() {
           <View style={styles.areaLabel}>
             <View style={[styles.areaDot, styles.areaDotSocial]} />
             <Text style={styles.areaLabelText}>Social & Verwaltung</Text>
-            <Text style={styles.areaScopeText}>PULSE · Shorts · Team · Hilfe & Schutz</Text>
+            <Text style={styles.areaScopeText}>PULSE · Shorts · Support · Team · Hilfe & Schutz</Text>
           </View>
         </View>
 
         <View style={styles.tabRow}>
-          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
+          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
             <TouchableOpacity
               key={item}
               style={[styles.tabButton, tab === item && styles.tabButtonActive]}
@@ -1705,6 +1805,125 @@ export default function App() {
             </>
           )}
 
+          {tab === 'Support' && (
+            <View style={styles.supportPage}>
+              <View style={styles.supportHero}>
+                <Text style={styles.kickerLight}>UNABHÄNGIGER SUPPORT</Text>
+                <Text style={styles.supportTitle}>ASPEKT.TV direkt unterstützen</Text>
+                <Text style={styles.bodyText}>
+                  Unterstütze unabhängigen Journalismus direkt und ohne App-Store-Zwischenhändler.
+                </Text>
+              </View>
+
+              {supportNotice && (
+                <View style={[
+                  styles.feedbackBanner,
+                  supportNotice.tone === 'success'
+                    ? styles.feedbackBannerSuccess
+                    : supportNotice.tone === 'error'
+                      ? styles.feedbackBannerError
+                      : styles.feedbackBannerInfo,
+                ]}>
+                  <Text style={[
+                    styles.pulseNotice,
+                    supportNotice.tone === 'success'
+                      ? styles.noticeSuccess
+                      : supportNotice.tone === 'error'
+                        ? styles.noticeError
+                        : styles.noticeInfo,
+                  ]}>
+                    {supportNotice.message}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.supportCard}>
+                <Text style={styles.sectionTitle}>Direkte Unterstützung</Text>
+                <View style={styles.supportDisclosure}>
+                  <Text style={styles.supportDisclosureTitle}>
+                    100 % deiner Unterstützung gehen direkt an ASPEKT.TV.
+                  </Text>
+                  <Text style={styles.supportDisclosureText}>
+                    Die Zahlung wird außerhalb der App über den von ASPEKT.TV konfigurierten Anbieter abgewickelt.
+                  </Text>
+                </View>
+                <Text style={styles.bodyText}>
+                  Zahlungs-Link von Stripe, Ko-fi oder einem anderen HTTPS-Anbieter:
+                </Text>
+                <TextInput
+                  style={styles.supportUrlInput}
+                  value={supportUrlDraft}
+                  onChangeText={setSupportUrlDraft}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  maxLength={2048}
+                  accessibilityLabel="Externer HTTPS-Zahlungs-Link"
+                />
+                <Text style={styles.supportHint}>
+                  Der Link bleibt leer und der Zahlungsbutton deaktiviert, bis du einen gültigen HTTPS-Link speicherst. Die Einstellung wird lokal in diesem Browser gespeichert.
+                </Text>
+                <View style={styles.supportActions}>
+                  <TouchableOpacity
+                    style={styles.supportSecondaryButton}
+                    onPress={saveSupportPaymentLink}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.supportButtonText}>Zahlungs-Link speichern</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.supportPrimaryButton,
+                      !supportPaymentUrl && styles.supportButtonDisabled,
+                    ]}
+                    onPress={() => void openSupportPayment()}
+                    disabled={!supportPaymentUrl}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: !supportPaymentUrl }}
+                  >
+                    <Text style={styles.supportButtonText}>Extern unterstützen</Text>
+                  </TouchableOpacity>
+                </View>
+                {!supportPaymentUrl && (
+                  <Text style={styles.supportUnavailable}>
+                    Aktuell ist kein Zahlungs-Link konfiguriert.
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.supportCard}>
+                <Text style={styles.sectionTitle}>Supporter-Mitgliedschaft</Text>
+                <Text style={styles.bodyText}>
+                  Das Supporter-Badge ist hier als lokale Vorschau/Test-Option verfügbar. Es wird nicht durch Stripe, Ko-fi oder einen anderen Zahlungsanbieter verifiziert.
+                </Text>
+                {supporterPreviewEnabled ? (
+                  <View style={styles.supporterBadge}>
+                    <Text style={styles.supporterBadgeText}>SUPPORTER · TEST</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.supportUnavailable}>
+                    Kein Supporter-Badge aktiv.
+                  </Text>
+                )}
+                <TouchableOpacity
+                  style={styles.supportSecondaryButton}
+                  onPress={toggleSupporterPreview}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: supporterPreviewEnabled }}
+                >
+                  <Text style={styles.supportButtonText}>
+                    {supporterPreviewEnabled
+                      ? 'Test-Badge deaktivieren'
+                      : 'Supporter-Badge Vorschau aktivieren'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={styles.supportHint}>
+                  Das Test-Badge wird lokal gespeichert und erscheint in der Kopfzeile. Es ist kein Zahlungs- oder Mitgliedschaftsnachweis.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {tab === 'Team' && (
             <View style={styles.cmsMain}>
               <View style={styles.helpSection}>
@@ -2116,6 +2335,19 @@ const styles = StyleSheet.create({
   brand: { color: '#FFF', fontSize: 25, fontWeight: '900', letterSpacing: -1 },
   brandAccent: { color: '#E11D48' },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+  supporterHeaderBadge: {
+    backgroundColor: aspectTheme.colors.status.success.surface,
+    borderColor: aspectTheme.colors.status.success.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.sm,
+    paddingVertical: aspectTheme.spacing.xxs,
+  },
+  supporterHeaderBadgeText: {
+    color: aspectTheme.colors.status.success.text,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
   ageBadge: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6 },
   ageMinor: { backgroundColor: '#2563EB' },
   ageAdult: { backgroundColor: '#991B1B' },
@@ -2700,6 +2932,110 @@ const styles = StyleSheet.create({
   noticeSuccess: { color: aspectTheme.colors.status.success.text },
   noticeError: { color: aspectTheme.colors.status.error.text },
   noticeInfo: { color: aspectTheme.colors.status.info.text },
+  supportPage: { gap: aspectTheme.spacing.lg },
+  supportHero: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.accentBorder,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.xl,
+    padding: aspectTheme.spacing.xl,
+    gap: aspectTheme.spacing.sm,
+  },
+  supportTitle: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.storyTitle,
+    lineHeight: 31,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  supportCard: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.lg,
+    padding: aspectTheme.spacing.lg,
+    gap: aspectTheme.spacing.md,
+  },
+  supportDisclosure: {
+    backgroundColor: aspectTheme.colors.status.success.surface,
+    borderColor: aspectTheme.colors.status.success.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.md,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.xs,
+  },
+  supportDisclosureTitle: {
+    color: aspectTheme.colors.status.success.text,
+    fontSize: aspectTheme.typography.bodyLarge,
+    lineHeight: 22,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  supportDisclosureText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.body,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  supportUrlInput: {
+    minHeight: 44,
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.sm,
+    color: aspectTheme.colors.textPrimary,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  supportHint: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.caption,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  supportActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.sm,
+  },
+  supportPrimaryButton: {
+    backgroundColor: aspectTheme.colors.accent,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+    alignItems: 'center',
+  },
+  supportSecondaryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: aspectTheme.colors.surfacePressed,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  supportButtonDisabled: { opacity: 0.5 },
+  supportButtonText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  supportUnavailable: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.body,
+    fontWeight: aspectTheme.typography.weight.medium,
+  },
+  supporterBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: aspectTheme.colors.accentSoft,
+    borderColor: aspectTheme.colors.accent,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.xs,
+  },
+  supporterBadgeText: {
+    color: aspectTheme.colors.accentText,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.heavy,
+    letterSpacing: 0.4,
+  },
   shareToast: { alignSelf: 'center', backgroundColor: '#166534', color: '#DCFCE7', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: '800' },
   channelCard: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 },
   channelRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#09090B', borderRadius: 8, padding: 10 },
