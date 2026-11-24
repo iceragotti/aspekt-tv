@@ -20,6 +20,7 @@ type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigege
 type PostStatus = 'Entwurf' | 'Zur Prüfung' | 'Freigegeben' | 'Abgelehnt';
 type AgeRating = 'Alle' | '18+';
 type PulseReaction = '❤️' | '😂' | '👍' | '😮';
+type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
 
@@ -30,6 +31,7 @@ interface ChatPrefill {
 }
 
 const PULSE_REACTIONS: PulseReaction[] = ['❤️', '😂', '👍', '😮'];
+const PULSE_FEED_FILTERS: PulseFeedFilter[] = ['Alle', 'Neu', 'Gefolgt'];
 
 interface Article {
   id: string;
@@ -68,6 +70,7 @@ interface SocialPost {
   saved?: boolean;
   reactions?: ReactionCounts;
   myReaction?: PulseReaction | null;
+  createdAt?: number;
 }
 
 interface Story {
@@ -97,6 +100,7 @@ interface AppState {
   followed: string[];
   shortsFeed: 'Für Dich' | 'Gefolgt';
   shortsIndex: number;
+  pulseFeedFilter?: PulseFeedFilter;
 }
 
 const TODAY = '23. November 2026';
@@ -287,6 +291,9 @@ export default function App() {
   const [hiddenPostIds, setHiddenPostIds] = useState<string[]>(
     initial.hiddenPostIds ?? [],
   );
+  const [pulseFeedFilter, setPulseFeedFilter] = useState<PulseFeedFilter>(
+    initial.pulseFeedFilter ?? 'Alle',
+  );
   const [shortsFeed, setShortsFeed] = useState<'Für Dich' | 'Gefolgt'>(
     initial.shortsFeed ?? 'Für Dich',
   );
@@ -309,10 +316,11 @@ export default function App() {
         articles, posts, stories, ageMode, breakingApproved,
         crisisChecklist: checklist, history: cmsHistory,
         blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
+        pulseFeedFilter,
         dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
       }));
     } catch {}
-  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
+  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -335,7 +343,7 @@ export default function App() {
   });
   const hero = visibleArticles[0];
 
-  const visiblePosts = posts.filter((post) => {
+  const eligiblePulsePosts = posts.filter((post) => {
     const ownPendingPost =
       post.status === 'Zur Prüfung' && post.handle === '@mein_creator';
     if (post.status !== 'Freigegeben' && !ownPendingPost) return false;
@@ -343,9 +351,27 @@ export default function App() {
     if (ageMode === 'U18' && (post.rating === '18+' || containsProtected(post.text))) return false;
     return true;
   });
-  const pendingPulseCount = visiblePosts.filter(
+  const pendingPulseCount = eligiblePulsePosts.filter(
     (post) => post.status === 'Zur Prüfung' && post.handle === '@mein_creator',
   ).length;
+  const filteredPulsePosts = pulseFeedFilter === 'Gefolgt'
+    ? eligiblePulsePosts.filter((post) => followed.includes(post.handle))
+    : eligiblePulsePosts;
+  const visiblePosts = pulseFeedFilter === 'Neu'
+    ? filteredPulsePosts
+      .map((post, index) => ({ post, index }))
+      .sort((left, right) => {
+        const leftCreatedAt = left.post.createdAt;
+        const rightCreatedAt = right.post.createdAt;
+        if (leftCreatedAt !== undefined && rightCreatedAt !== undefined) {
+          return rightCreatedAt - leftCreatedAt || left.index - right.index;
+        }
+        if (leftCreatedAt !== undefined) return -1;
+        if (rightCreatedAt !== undefined) return 1;
+        return left.index - right.index;
+      })
+      .map(({ post }) => post)
+    : filteredPulsePosts;
 
   const shortsClips = posts.filter((post) =>
     post.type === 'Clip' &&
@@ -440,8 +466,9 @@ export default function App() {
       rating = '18+';
     }
 
+    const createdAt = Date.now();
     setPosts((prev) => [{
-      id: `post-${Date.now()}`, type: 'Text', text, handle: '@mein_creator',
+      id: `post-${createdAt}`, createdAt, type: 'Text', text, handle: '@mein_creator',
       creator: 'Eigener Creator', verified: false, rating, status: 'Zur Prüfung',
       likes: 0, comments: [], history: ['Zur Prüfung eingereicht'],
       reactions: {}, myReaction: null,
@@ -495,8 +522,10 @@ export default function App() {
       if (ageMode !== '18+') return;
       effectiveRating = '18+';
     }
+    const createdAt = Date.now();
     setPosts((prev) => [{
-      id: `short-${Date.now()}`,
+      id: `short-${createdAt}`,
+      createdAt,
       type: 'Clip',
       text,
       handle: '@mein_creator',
@@ -562,6 +591,7 @@ export default function App() {
     const payload = storage?.getItem(STORAGE_KEY) ?? JSON.stringify({
       articles, posts, stories, ageMode, breakingApproved, crisisChecklist: checklist,
       history: cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
+      pulseFeedFilter,
       dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
     });
     if (Platform.OS === 'web') {
@@ -598,6 +628,7 @@ export default function App() {
     setHiddenPostIds([]);
     setCmsHistory([]);
     setFollowed([]);
+    setPulseFeedFilter('Alle');
     setShortsFeed('Für Dich');
     setShortsIndex(0);
     setShortsPlaying(true);
@@ -873,6 +904,51 @@ export default function App() {
                 >
                   <Text style={styles.chatButtonText}>Direktnachrichten</Text>
                 </TouchableOpacity>
+              </View>
+              <View style={styles.pulseFilterPanel}>
+                <View style={styles.pulseFilterHeader}>
+                  <Text style={styles.pulseFilterTitle}>Dein Feed</Text>
+                  <Text style={styles.pulseFilterHint}>Du bestimmst die Ansicht</Text>
+                </View>
+                <View style={styles.pulseFilterRow}>
+                  {PULSE_FEED_FILTERS.map((filter) => {
+                    const selected = pulseFeedFilter === filter;
+                    return (
+                      <TouchableOpacity
+                        key={filter}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        style={[
+                          styles.pulseFilterButton,
+                          selected && styles.pulseFilterButtonActive,
+                        ]}
+                        onPress={() => setPulseFeedFilter(filter)}
+                      >
+                        <Text style={[
+                          styles.pulseFilterButtonText,
+                          selected && styles.pulseFilterButtonTextActive,
+                        ]}>
+                          {filter}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={styles.feedTransparency}>
+                  <Text style={styles.feedTransparencyTitle}>
+                    Sichtbarkeit: {pulseFeedFilter}
+                  </Text>
+                  <Text style={styles.feedTransparencyText}>
+                    {pulseFeedFilter === 'Alle'
+                      ? 'Alle für dein Schutzprofil freigegebenen Beiträge in chronologischer Feed-Reihenfolge. Keine personalisierte Sortierung oder Shadowbanning.'
+                      : pulseFeedFilter === 'Neu'
+                        ? 'Neueste Beiträge zuerst nach Veröffentlichungszeit. Ältere Beiträge ohne Zeitstempel behalten ihre gespeicherte Reihenfolge.'
+                        : 'Nur Beiträge von Creatorn, denen du folgst. Weitere Beiträge bleiben unter „Alle“ sichtbar.'}
+                  </Text>
+                  <Text style={styles.feedTransparencyNote}>
+                    Alters- und Moderationsregeln sowie deine Blockierungen und ausgeblendeten Beiträge gelten weiterhin. Ältere Beiträge ohne Zeitstempel behalten ihre gespeicherte Reihenfolge.
+                  </Text>
+                </View>
               </View>
               <View style={styles.pulseOverview}>
                 <Text style={styles.pulseOverviewTitle}>PULSE-Status</Text>
@@ -1165,9 +1241,17 @@ export default function App() {
               ))}
               {visiblePosts.length === 0 && (
                 <View style={styles.helpSection}>
-                  <Text style={styles.sectionTitle}>Noch keine Beiträge im Feed</Text>
+                  <Text style={styles.sectionTitle}>
+                    {pulseFeedFilter === 'Gefolgt'
+                      ? 'Noch keine Beiträge von gefolgten Creatorn'
+                      : pulseFeedFilter === 'Neu'
+                        ? 'Keine Beiträge für die Neueste-Ansicht'
+                        : 'Noch keine Beiträge im Feed'}
+                  </Text>
                   <Text style={styles.bodyText}>
-                    Reiche einen PULSE-Beitrag ein oder schau später wieder vorbei.
+                    {pulseFeedFilter === 'Gefolgt'
+                      ? 'Folge Creatorn oder wechsle zu „Alle“, um weitere Beiträge zu sehen.'
+                      : 'Reiche einen PULSE-Beitrag ein oder schau später wieder vorbei.'}
                   </Text>
                 </View>
               )}
@@ -1824,9 +1908,96 @@ const styles = StyleSheet.create({
   safetyNotice: { backgroundColor: '#172554', borderColor: '#2563EB', borderWidth: 1, borderRadius: 10, padding: 12, gap: 4 },
   safetyTitle: { color: '#BFDBFE', fontSize: 14, fontWeight: '900' },
   bodyText: { color: '#A1A1AA', fontSize: 13, lineHeight: 19 },
-  pulseOverview: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 10, padding: 12, gap: 4 },
-  pulseOverviewTitle: { color: '#FFF', fontSize: 12, fontWeight: '900' },
-  pulseOverviewText: { color: '#A1A1AA', fontSize: 11, lineHeight: 17 },
+  pulseFilterPanel: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.lg,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.md,
+  },
+  pulseFilterHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.xs,
+  },
+  pulseFilterTitle: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.bodyLarge,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  pulseFilterHint: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.medium,
+  },
+  pulseFilterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.sm,
+  },
+  pulseFilterButton: {
+    backgroundColor: aspectTheme.colors.surfacePressed,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.pill,
+    paddingHorizontal: aspectTheme.spacing.lg,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  pulseFilterButtonActive: {
+    backgroundColor: aspectTheme.colors.accent,
+    borderColor: aspectTheme.colors.accent,
+  },
+  pulseFilterButtonText: {
+    color: aspectTheme.colors.textSecondary,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.bold,
+  },
+  pulseFilterButtonTextActive: { color: aspectTheme.colors.textPrimary },
+  feedTransparency: {
+    backgroundColor: aspectTheme.colors.status.info.surface,
+    borderColor: aspectTheme.colors.status.info.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.sm,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.xs,
+  },
+  feedTransparencyTitle: {
+    color: aspectTheme.colors.status.info.text,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  feedTransparencyText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.body,
+    lineHeight: aspectTheme.typography.lineBody,
+    fontWeight: aspectTheme.typography.weight.medium,
+  },
+  feedTransparencyNote: {
+    color: aspectTheme.colors.textSecondary,
+    fontSize: aspectTheme.typography.caption,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  pulseOverview: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.md,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.xxs,
+  },
+  pulseOverviewTitle: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.body,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  pulseOverviewText: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.label,
+    lineHeight: 17,
+  },
   storyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   storySummary: { color: '#A1A1AA', fontSize: 11, fontWeight: '700' },
   storyRail: { flexDirection: 'row', gap: 10, paddingVertical: 8 },
