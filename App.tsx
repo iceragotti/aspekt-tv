@@ -25,6 +25,8 @@ type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
 type SupportTab = 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
+type DirectChannelKey = 'telegram' | 'x' | 'press';
+type DirectChannelLinks = Record<DirectChannelKey, string>;
 
 interface ChatPrefill {
   id: string;
@@ -34,6 +36,23 @@ interface ChatPrefill {
 
 const PULSE_REACTIONS: PulseReaction[] = ['❤️', '😂', '👍', '😮'];
 const PULSE_FEED_FILTERS: PulseFeedFilter[] = ['Alle', 'Neu', 'Gefolgt'];
+const DIRECT_CHANNELS: {
+  key: DirectChannelKey;
+  title: string;
+  description: string;
+}[] = [
+  { key: 'telegram', title: 'Telegram', description: 'Unabhängiger Telegram-Kanal' },
+  { key: 'x', title: 'X', description: 'ASPEKT.TV auf X' },
+  { key: 'press', title: 'E-Mail / Presse', description: 'Direkter Kontakt via mailto-Link' },
+];
+const DIRECT_CHANNEL_HTTPS_PATTERN =
+  /^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?(?:[/?#][^\s]*)?$/i;
+const DIRECT_CHANNEL_MAILTO_PATTERN =
+  /^mailto:[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
+const isSafeDirectChannelLink = (key: DirectChannelKey, value: string) =>
+  key === 'press'
+    ? DIRECT_CHANNEL_MAILTO_PATTERN.test(value)
+    : DIRECT_CHANNEL_HTTPS_PATTERN.test(value);
 
 interface Article {
   id: string;
@@ -106,6 +125,7 @@ interface AppState {
   shortsFeed: 'Für Dich' | 'Gefolgt';
   shortsIndex: number;
   pulseFeedFilter?: PulseFeedFilter;
+  directChannelLinks?: Partial<DirectChannelLinks>;
   supportPaymentUrl?: string;
   supportPaymentLinkDisabled?: boolean;
   supporterPreviewEnabled?: boolean;
@@ -200,6 +220,11 @@ const INITIAL_STORIES: Story[] = [
 
 const NAV = ['Österreich', 'International', 'Politik', 'Wirtschaft', 'Chronik', 'Sport', 'Kultur'];
 const CRISIS_ITEMS = ['Trinkwasser', 'Taschenlampe / Powerbank', 'Notfall-Apotheke', 'Wichtige Dokumente', 'Radio', 'Notfallkontakte'];
+const QUICK_SAFETY_CONTACTS = [
+  { name: 'Rat auf Draht', number: '147' },
+  { name: 'Frauenhelpline', number: '0800222555' },
+  { name: 'TelefonSeelsorge', number: '142' },
+];
 const STORAGE_KEY = 'aspekt-tv-cms-v1';
 
 const getWebStorage = () => {
@@ -253,6 +278,17 @@ export default function App() {
   const initialSupportPaymentUrl = initial.supportPaymentLinkDisabled
     ? ''
     : initial.supportPaymentUrl || DEFAULT_SUPPORT_PAYMENT_URL;
+  const initialDirectChannelLinks: DirectChannelLinks = {
+    telegram: typeof initial.directChannelLinks?.telegram === 'string'
+      ? initial.directChannelLinks.telegram
+      : '',
+    x: typeof initial.directChannelLinks?.x === 'string'
+      ? initial.directChannelLinks.x
+      : '',
+    press: typeof initial.directChannelLinks?.press === 'string'
+      ? initial.directChannelLinks.press
+      : '',
+  };
   const [tab, setTab] = useState<SupportTab>('News');
   const [articles, setArticles] = useState<Article[]>(initial.articles ?? INITIAL_ARTICLES);
   const [posts, setPosts] = useState<SocialPost[]>(initial.posts ?? INITIAL_POSTS);
@@ -317,6 +353,17 @@ export default function App() {
   const [pulseFeedFilter, setPulseFeedFilter] = useState<PulseFeedFilter>(
     initial.pulseFeedFilter ?? 'Alle',
   );
+  const [directChannelLinks, setDirectChannelLinks] = useState<DirectChannelLinks>(
+    initialDirectChannelLinks,
+  );
+  const [directChannelDrafts, setDirectChannelDrafts] = useState<DirectChannelLinks>(
+    initialDirectChannelLinks,
+  );
+  const [directChannelNotice, setDirectChannelNotice] = useState<{
+    message: string;
+    tone: PulseNoticeTone;
+  } | null>(null);
+  const [safetyQuickNotice, setSafetyQuickNotice] = useState<string | null>(null);
   const [shortsFeed, setShortsFeed] = useState<'Für Dich' | 'Gefolgt'>(
     initial.shortsFeed ?? 'Für Dich',
   );
@@ -355,12 +402,12 @@ export default function App() {
         articles, posts, stories, ageMode, breakingApproved,
         crisisChecklist: checklist, history: cmsHistory,
         blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
-        pulseFeedFilter,
+        pulseFeedFilter, directChannelLinks,
         supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled,
         dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
       }));
     } catch {}
-  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
+  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, directChannelLinks, supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -823,12 +870,82 @@ export default function App() {
     });
   };
 
+  const saveDirectChannelLinks = () => {
+    const normalizedLinks: DirectChannelLinks = {
+      telegram: directChannelDrafts.telegram.trim(),
+      x: directChannelDrafts.x.trim(),
+      press: directChannelDrafts.press.trim(),
+    };
+    const invalidChannel = DIRECT_CHANNELS.find(({ key }) =>
+      normalizedLinks[key] !== '' &&
+      !isSafeDirectChannelLink(key, normalizedLinks[key]),
+    );
+    if (invalidChannel) {
+      setDirectChannelNotice({
+        message: invalidChannel.key === 'press'
+          ? 'E-Mail / Presse: Bitte verwende eine gültige mailto-Adresse.'
+          : `${invalidChannel.title}: Bitte verwende einen gültigen HTTPS-Link.`,
+        tone: 'error',
+      });
+      return;
+    }
+
+    setDirectChannelLinks(normalizedLinks);
+    setDirectChannelDrafts(normalizedLinks);
+    setDirectChannelNotice({
+      message: 'Direktkanäle gespeichert. Die Einstellungen bleiben lokal in diesem Browser.',
+      tone: 'success',
+    });
+  };
+
+  const openDirectChannel = async (key: DirectChannelKey) => {
+    const url = directChannelLinks[key];
+    if (!url) {
+      setDirectChannelNotice({
+        message: 'Dieser Direktkanal ist noch nicht konfiguriert.',
+        tone: 'info',
+      });
+      return;
+    }
+    if (!isSafeDirectChannelLink(key, url)) {
+      setDirectChannelNotice({
+        message: 'Der gespeicherte Direktkanal ist ungültig. Bitte speichere einen sicheren HTTPS- oder Mailto-Link.',
+        tone: 'error',
+      });
+      return;
+    }
+
+    try {
+      await Linking.openURL(url);
+      setDirectChannelNotice({
+        message: `${DIRECT_CHANNELS.find((channel) => channel.key === key)?.title ?? 'Direktkanal'} geöffnet.`,
+        tone: 'success',
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : '';
+      setDirectChannelNotice({
+        message: `Der Direktkanal konnte nicht geöffnet werden.${detail}`,
+        tone: 'error',
+      });
+    }
+  };
+
+  const openSafetyQuickContact = async (name: string, number: string) => {
+    try {
+      await Linking.openURL(`tel:${number}`);
+      setSafetyQuickNotice(`${name} wird geöffnet.`);
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : '';
+      setSafetyQuickNotice(`Der Anruf konnte nicht gestartet werden.${detail}`);
+    }
+  };
+
   const exportData = () => {
     const storage = getWebStorage();
     const payload = storage?.getItem(STORAGE_KEY) ?? JSON.stringify({
       articles, posts, stories, ageMode, breakingApproved, crisisChecklist: checklist,
       history: cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
-      pulseFeedFilter,
+      pulseFeedFilter, directChannelLinks,
       supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled,
       dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
     });
@@ -867,6 +984,15 @@ export default function App() {
     setCmsHistory([]);
     setFollowed([]);
     setPulseFeedFilter('Alle');
+    const emptyDirectChannelLinks: DirectChannelLinks = {
+      telegram: '',
+      x: '',
+      press: '',
+    };
+    setDirectChannelLinks(emptyDirectChannelLinks);
+    setDirectChannelDrafts(emptyDirectChannelLinks);
+    setDirectChannelNotice(null);
+    setSafetyQuickNotice(null);
     setSupportPaymentUrl(DEFAULT_SUPPORT_PAYMENT_URL);
     setSupportUrlDraft(DEFAULT_SUPPORT_PAYMENT_URL);
     setSupportPaymentLinkDisabled(false);
@@ -1616,16 +1742,124 @@ export default function App() {
               {shareNote !== '' && <Text style={styles.shareToast}>{shareNote}</Text>}
 
               <View style={styles.channelCard}>
-                <Text style={styles.sectionTitle}>Direkt-Kanäle</Text>
-                {['Eilmeldungs-Updates', 'Community-Debatte', 'Creator-Updates'].map((channel) => (
-                  <TouchableOpacity key={channel} style={styles.channelRow}>
-                    <View style={styles.channelDot} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.channelTitle}>{channel}</Text>
-                      <Text style={styles.channelMeta}>ASPEKT Kanal · Neue Nachrichten</Text>
+                <Text style={styles.sectionTitle}>Unabhängige Direktkanäle</Text>
+                <Text style={styles.bodyText}>
+                  Hinterlege offizielle Telegram-, X- und Presse-Kontaktlinks. Für Telegram und X sind sichere HTTPS-Links erforderlich, für E-Mail/Presse ein Mailto-Link mit gültiger Adresse. Links werden lokal in diesem Browser gespeichert.
+                </Text>
+                {directChannelNotice && (
+                  <View style={[
+                    styles.feedbackBanner,
+                    directChannelNotice.tone === 'success'
+                      ? styles.feedbackBannerSuccess
+                      : directChannelNotice.tone === 'error'
+                        ? styles.feedbackBannerError
+                        : styles.feedbackBannerInfo,
+                  ]}>
+                    <Text style={[
+                      styles.pulseNotice,
+                      directChannelNotice.tone === 'success'
+                        ? styles.noticeSuccess
+                        : directChannelNotice.tone === 'error'
+                          ? styles.noticeError
+                          : styles.noticeInfo,
+                    ]}>
+                      {directChannelNotice.message}
+                    </Text>
+                  </View>
+                )}
+                {DIRECT_CHANNELS.map((channel) => {
+                  const savedLink = directChannelLinks[channel.key];
+                  const isSafeLink = savedLink !== '' &&
+                    isSafeDirectChannelLink(channel.key, savedLink);
+                  const hasInvalidSavedLink = savedLink !== '' && !isSafeLink;
+                  return (
+                    <View key={channel.key} style={styles.directChannelItem}>
+                      <View style={styles.directChannelHeading}>
+                        <Text style={styles.channelTitle}>{channel.title}</Text>
+                        <Text style={styles.channelMeta}>{channel.description}</Text>
+                      </View>
+                      <TextInput
+                        style={styles.channelInput}
+                        value={directChannelDrafts[channel.key]}
+                        onChangeText={(value) => setDirectChannelDrafts((previous) => ({
+                          ...previous,
+                          [channel.key]: value,
+                        }))}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="url"
+                        maxLength={2048}
+                        accessibilityLabel={`${channel.title} Link`}
+                      />
+                      <View style={styles.directChannelActions}>
+                        <Text style={[
+                          styles.channelStatus,
+                          isSafeLink
+                            ? styles.channelStatusActive
+                            : hasInvalidSavedLink
+                              ? styles.channelStatusInvalid
+                              : styles.channelStatusInactive,
+                        ]}>
+                          {isSafeLink ? 'Aktiv' : savedLink ? 'Ungültiger Link' : 'Nicht konfiguriert'}
+                        </Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.channelOpenButton,
+                            !isSafeLink && styles.supportButtonDisabled,
+                          ]}
+                          onPress={() => void openDirectChannel(channel.key)}
+                          disabled={!isSafeLink}
+                          accessibilityRole="button"
+                          accessibilityState={{ disabled: !isSafeLink }}
+                        >
+                          <Text style={styles.supportButtonText}>Öffnen</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                  </TouchableOpacity>
-                ))}
+                  );
+                })}
+                <TouchableOpacity
+                  style={styles.supportSecondaryButton}
+                  onPress={saveDirectChannelLinks}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.supportButtonText}>Direktkanäle speichern</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.safetyQuickCard}>
+                <Text style={styles.sectionTitle}>Notfall & Schutz · Österreich</Text>
+                <Text style={styles.bodyText}>
+                  Bei akuter Gefahr: Euronotruf 112. Die folgenden Nummern verbinden mit österreichischen Krisen- und Schutzstellen.
+                </Text>
+                <View style={styles.safetyQuickGrid}>
+                  {[{ name: 'Euronotruf', number: '112' }, ...QUICK_SAFETY_CONTACTS].map((contact) => (
+                    <TouchableOpacity
+                      key={contact.number}
+                      style={styles.safetyQuickContact}
+                      onPress={() => void openSafetyQuickContact(contact.name, contact.number)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${contact.name} unter ${contact.number} anrufen`}
+                    >
+                      <Text style={styles.safetyQuickContactName}>{contact.name}</Text>
+                      <Text style={styles.safetyQuickContactNumber}>{contact.number}</Text>
+                      <Text style={styles.callText}>Anrufen</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {safetyQuickNotice && (
+                  <Text style={styles.safetyQuickNotice}>{safetyQuickNotice}</Text>
+                )}
+                <Text style={styles.safetyQuickTip}>
+                  Blackout: Trinkwasser und Medikamente bereithalten, Taschenlampe und Powerbank prüfen, offizielle Warnmeldungen über ein batteriebetriebenes Radio verfolgen und Mobiltelefon-Akku sparen.
+                </Text>
+                <TouchableOpacity
+                  style={styles.safetyQuickButton}
+                  onPress={() => setTab('Hilfe & Schutz')}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.safetyQuickButtonText}>Alle Hilfe- & Schutzstellen öffnen</Text>
+                </TouchableOpacity>
               </View>
             </>
           )}
@@ -3049,11 +3283,122 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   shareToast: { alignSelf: 'center', backgroundColor: '#166534', color: '#DCFCE7', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: '800' },
-  channelCard: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 },
-  channelRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#09090B', borderRadius: 8, padding: 10 },
-  channelDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#E11D48' },
-  channelTitle: { color: '#FFF', fontSize: 13, fontWeight: '800' },
-  channelMeta: { color: '#71717A', fontSize: 11, marginTop: 2 },
+  channelCard: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.lg,
+    padding: aspectTheme.spacing.lg,
+    gap: aspectTheme.spacing.md,
+  },
+  directChannelItem: {
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.md,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.sm,
+  },
+  directChannelHeading: { gap: aspectTheme.spacing.xxs },
+  channelTitle: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.bodyLarge,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
+  channelMeta: {
+    color: aspectTheme.colors.textMuted,
+    fontSize: aspectTheme.typography.caption,
+  },
+  channelInput: {
+    minHeight: 44,
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.sm,
+    color: aspectTheme.colors.textPrimary,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  directChannelActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.sm,
+  },
+  channelStatus: {
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
+  channelStatusActive: { color: aspectTheme.colors.status.success.text },
+  channelStatusInvalid: { color: aspectTheme.colors.status.error.text },
+  channelStatusInactive: { color: aspectTheme.colors.textMuted },
+  channelOpenButton: {
+    backgroundColor: aspectTheme.colors.accent,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+    alignItems: 'center',
+  },
+  safetyQuickCard: {
+    backgroundColor: aspectTheme.colors.surface,
+    borderColor: aspectTheme.colors.status.error.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.lg,
+    padding: aspectTheme.spacing.lg,
+    gap: aspectTheme.spacing.md,
+  },
+  safetyQuickGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: aspectTheme.spacing.sm,
+  },
+  safetyQuickContact: {
+    flexGrow: 1,
+    flexBasis: 125,
+    backgroundColor: aspectTheme.colors.canvas,
+    borderColor: aspectTheme.colors.border,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.md,
+    padding: aspectTheme.spacing.md,
+    gap: aspectTheme.spacing.xxs,
+  },
+  safetyQuickContactName: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.caption,
+    fontWeight: aspectTheme.typography.weight.strong,
+  },
+  safetyQuickContactNumber: {
+    color: aspectTheme.colors.status.error.text,
+    fontSize: aspectTheme.typography.bodyLarge,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
+  safetyQuickNotice: {
+    color: aspectTheme.colors.status.info.text,
+    fontSize: aspectTheme.typography.caption,
+  },
+  safetyQuickTip: {
+    color: aspectTheme.colors.textSecondary,
+    backgroundColor: aspectTheme.colors.surfaceRaised,
+    borderRadius: aspectTheme.radius.sm,
+    padding: aspectTheme.spacing.md,
+    fontSize: aspectTheme.typography.caption,
+    lineHeight: aspectTheme.typography.lineBody,
+  },
+  safetyQuickButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: aspectTheme.colors.surfacePressed,
+    borderColor: aspectTheme.colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: aspectTheme.radius.sm,
+    paddingHorizontal: aspectTheme.spacing.md,
+    paddingVertical: aspectTheme.spacing.sm,
+  },
+  safetyQuickButtonText: {
+    color: aspectTheme.colors.textPrimary,
+    fontSize: aspectTheme.typography.label,
+    fontWeight: aspectTheme.typography.weight.heavy,
+  },
   cmsLocked: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 12, padding: 18, gap: 12 },
   cmsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   cmsTitle: { color: '#FFF', fontSize: 24, fontWeight: '900' },
