@@ -26,6 +26,7 @@ interface ChatMessage {
   sender_id: string;
   receiver_id: string | null;
   group_id: string | null;
+  reply_to_message_id: string | null;
   body: string;
   image_path: string | null;
   created_at: string;
@@ -85,6 +86,9 @@ export default function SocialChatModal({
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState<string | null>(null);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [messageImageUrls, setMessageImageUrls] = useState<Record<string, string>>({});
   const [messageImageErrors, setMessageImageErrors] = useState<Record<string, string>>({});
   const [loadingImageIds, setLoadingImageIds] = useState<string[]>([]);
@@ -288,7 +292,7 @@ export default function SocialChatModal({
     const loadRevision = ++chatLoadRevisionRef.current;
     let query = supabase
       .from('messages')
-      .select('id, sender_id, receiver_id, group_id, body, image_path, created_at')
+      .select('id, sender_id, receiver_id, group_id, reply_to_message_id, body, image_path, created_at')
       .order('created_at', { ascending: true });
     query = groupId
       ? query.eq('group_id', groupId)
@@ -425,6 +429,39 @@ export default function SocialChatModal({
     }
   };
 
+  const removeMessageFromLocalState = (messageId: string) => {
+    chatLoadRevisionRef.current += 1;
+    visibleMessageIdsRef.current.delete(messageId);
+    setMessages((previous) =>
+      previous
+        .filter((message) => message.id !== messageId)
+        .map((message) =>
+          message.reply_to_message_id === messageId
+            ? { ...message, reply_to_message_id: null }
+            : message,
+        ),
+    );
+    setMessageReads((previous) =>
+      previous.filter((read) => read.message_id !== messageId),
+    );
+    setMessageReactions((previous) =>
+      previous.filter((reaction) => reaction.message_id !== messageId),
+    );
+    setMessageImageUrls((previous) => {
+      const next = { ...previous };
+      delete next[messageId];
+      return next;
+    });
+    setMessageImageErrors((previous) => {
+      const next = { ...previous };
+      delete next[messageId];
+      return next;
+    });
+    setLoadingImageIds((previous) => previous.filter((id) => id !== messageId));
+    setReplyingTo((current) => current?.id === messageId ? null : current);
+    setConfirmDeleteMessageId((current) => current === messageId ? null : current);
+  };
+
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setStatus('Supabase ist nicht konfiguriert. Bitte EXPO_PUBLIC_* in der .env-Datei setzen.');
@@ -461,6 +498,8 @@ export default function SocialChatModal({
         setGroups([]);
         setLastMessages({});
         setMessages([]);
+        setReplyingTo(null);
+        setConfirmDeleteMessageId(null);
         setMessageImageUrls({});
         setMessageImageErrors({});
         setLoadingImageIds([]);
@@ -482,6 +521,8 @@ export default function SocialChatModal({
     chatLoadRevisionRef.current += 1;
     visibleMessageIdsRef.current.clear();
     setMessages([]);
+    setReplyingTo(null);
+    setConfirmDeleteMessageId(null);
     setMessageReads([]);
     setMessageReactions([]);
     setMessageImageUrls({});
@@ -583,6 +624,15 @@ export default function SocialChatModal({
                 });
             }
           }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        (payload) => {
+          const deletedMessage = payload.old as Pick<ChatMessage, 'id'>;
+          if (!visibleMessageIdsRef.current.has(deletedMessage.id)) return;
+          removeMessageFromLocalState(deletedMessage.id);
         },
       )
       .on(
@@ -696,6 +746,13 @@ export default function SocialChatModal({
       )
       .on(
         'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        () => {
+          void loadChatPreviews(session.user.id);
+        },
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'chat_group_members' },
         (payload) => {
           const membership = (payload.eventType === 'DELETE'
@@ -785,6 +842,7 @@ export default function SocialChatModal({
       sender_id: session.user.id,
       receiver_id: selectedProfile?.id ?? null,
       group_id: selectedGroup?.id ?? null,
+      reply_to_message_id: replyingTo?.id ?? null,
       body: messageDraft.trim(),
       image_path: null,
     };
@@ -792,7 +850,7 @@ export default function SocialChatModal({
       const { data, error } = await supabase
         .from('messages')
         .insert(message)
-        .select('id, sender_id, receiver_id, group_id, body, image_path, created_at')
+        .select('id, sender_id, receiver_id, group_id, reply_to_message_id, body, image_path, created_at')
         .single();
       if (error) throw error;
       const sentMessage = data as ChatMessage;
@@ -803,6 +861,7 @@ export default function SocialChatModal({
       );
       updateChatPreview(sentMessage);
       setMessageDraft('');
+      setReplyingTo(null);
       setStatus('Nachricht gesendet.');
     } catch (error) {
       const detail =
@@ -864,13 +923,14 @@ export default function SocialChatModal({
         sender_id: session.user.id,
         receiver_id: selectedProfile?.id ?? null,
         group_id: selectedGroup?.id ?? null,
+        reply_to_message_id: replyingTo?.id ?? null,
         body: messageDraft.trim() || 'Bild',
         image_path: uploadedPath,
       };
       const { data, error: messageError } = await supabase
         .from('messages')
         .insert(message)
-        .select('id, sender_id, receiver_id, group_id, body, image_path, created_at')
+        .select('id, sender_id, receiver_id, group_id, reply_to_message_id, body, image_path, created_at')
         .single();
       if (messageError) throw messageError;
       messageSaved = true;
@@ -883,6 +943,7 @@ export default function SocialChatModal({
       );
       updateChatPreview(sentMessage);
       setMessageDraft('');
+      setReplyingTo(null);
 
       const { data: signedImage, error: signedImageError } = await supabase.storage
         .from(CHAT_IMAGES_BUCKET)
@@ -1012,6 +1073,46 @@ export default function SocialChatModal({
         ? previous.filter((id) => id !== profileId)
         : [...previous, profileId],
     );
+  };
+
+  const deleteOwnMessage = async (message: ChatMessage) => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    if (!session || message.sender_id !== session.user.id) return;
+
+    setDeletingMessageId(message.id);
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', message.id)
+        .eq('sender_id', session.user.id)
+        .select('id');
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        throw new Error('Nachricht nicht gefunden oder keine Löschberechtigung.');
+      }
+
+      removeMessageFromLocalState(message.id);
+      if (message.image_path) {
+        const { error: imageDeleteError } = await supabase.storage
+          .from(CHAT_IMAGES_BUCKET)
+          .remove([message.image_path]);
+        if (imageDeleteError) {
+          setStatus(`Nachricht gelöscht, Chatbild konnte aber nicht gelöscht werden: ${imageDeleteError.message}`);
+          return;
+        }
+      }
+      setStatus('Eigene Nachricht gelöscht.');
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      setStatus(`Nachricht konnte nicht gelöscht werden: ${detail}`);
+    } finally {
+      setDeletingMessageId(null);
+    }
   };
 
   const toggleReaction = async (messageId: string, emoji: string) => {
@@ -1699,6 +1800,18 @@ export default function SocialChatModal({
                         const reactionsForMessage = messageReactions.filter(
                           (reaction) => reaction.message_id === message.id,
                         );
+                        const repliedMessage = message.reply_to_message_id
+                          ? messages.find(
+                              (item) => item.id === message.reply_to_message_id,
+                            )
+                          : undefined;
+                        const repliedSender = repliedMessage
+                          ? repliedMessage.sender_id === session.user.id
+                            ? 'Du'
+                            : profiles.find(
+                                (profile) => profile.id === repliedMessage.sender_id,
+                              )?.display_name ?? 'Mitglied'
+                          : null;
                         return (
                           <View
                             key={message.id}
@@ -1709,6 +1822,18 @@ export default function SocialChatModal({
                                 {profiles.find((profile) => profile.id === message.sender_id)
                                   ?.display_name ?? 'Mitglied'}
                               </Text>
+                            )}
+                            {message.reply_to_message_id && (
+                              <View style={styles.replyQuote}>
+                                <Text style={styles.replyQuoteLabel}>
+                                  Antwort auf {repliedSender ?? 'nicht verfügbare Nachricht'}
+                                </Text>
+                                {repliedMessage && (
+                                  <Text style={styles.replyQuoteText} numberOfLines={2}>
+                                    {repliedMessage.body}
+                                  </Text>
+                                )}
+                              </View>
                             )}
                             {message.image_path && (
                               <View style={styles.messageImageWrap}>
@@ -1820,58 +1945,127 @@ export default function SocialChatModal({
                                 <Text style={styles.messageReport}>Nachricht melden</Text>
                               </TouchableOpacity>
                             )}
+                            <View style={styles.messageActions}>
+                              <TouchableOpacity
+                                disabled={isBlocked}
+                                onPress={() => {
+                                  setReplyingTo(message);
+                                  setStatus('');
+                                }}
+                              >
+                                <Text style={[styles.messageAction, isBlocked && styles.disabledText]}>
+                                  Antworten
+                                </Text>
+                              </TouchableOpacity>
+                              {own && (
+                                <TouchableOpacity
+                                  disabled={deletingMessageId !== null}
+                                  onPress={() => setConfirmDeleteMessageId(message.id)}
+                                >
+                                  <Text style={[styles.messageDelete, deletingMessageId !== null && styles.disabledText]}>
+                                    Löschen
+                                  </Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                            {own && confirmDeleteMessageId === message.id && (
+                              <View style={styles.deleteConfirmation}>
+                                <Text style={styles.deleteConfirmText}>
+                                  Nachricht endgültig löschen?
+                                </Text>
+                                <TouchableOpacity
+                                  disabled={deletingMessageId !== null}
+                                  onPress={() => void deleteOwnMessage(message)}
+                                >
+                                  <Text style={styles.messageDelete}>
+                                    {deletingMessageId === message.id ? 'Löscht …' : 'Ja, löschen'}
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  disabled={deletingMessageId !== null}
+                                  onPress={() => setConfirmDeleteMessageId(null)}
+                                >
+                                  <Text style={styles.messageAction}>Abbrechen</Text>
+                                </TouchableOpacity>
+                              </View>
+                            )}
                           </View>
                         );
                       })}
                     </ScrollView>
-                    <View style={styles.composer}>
-                      {Platform.OS === 'web' && (
+                    <View style={styles.composerArea}>
+                      {replyingTo && (
+                        <View style={styles.replyComposer}>
+                          <View style={styles.replyComposerText}>
+                            <Text style={styles.replyQuoteLabel}>
+                              Antwort auf {replyingTo.sender_id === session.user.id
+                                ? 'eigene Nachricht'
+                                : profiles.find(
+                                    (profile) => profile.id === replyingTo.sender_id,
+                                  )?.display_name ?? 'Mitglied'}
+                            </Text>
+                            <Text style={styles.replyQuoteText} numberOfLines={1}>
+                              {replyingTo.body}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => setReplyingTo(null)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Antwort abbrechen"
+                          >
+                            <Text style={styles.messageAction}>Abbrechen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      <View style={styles.composer}>
+                        {Platform.OS === 'web' && (
+                          <TouchableOpacity
+                            style={[
+                              styles.imageButton,
+                              (isBlocked || uploadingImage || sendingMessage) &&
+                                styles.disabled,
+                            ]}
+                            onPress={chooseChatImage}
+                            disabled={isBlocked || uploadingImage || sendingMessage}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              uploadingImage ? 'Bild wird hochgeladen' : 'Bild auswählen'
+                            }
+                          >
+                            <Text style={styles.imageButtonText}>
+                              {uploadingImage ? 'Lädt …' : 'Bild'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                        <TextInput
+                          style={styles.messageInput}
+                          value={messageDraft}
+                          onChangeText={setMessageDraft}
+                          placeholder="Nachricht..."
+                          placeholderTextColor="#71717A"
+                          maxLength={1000}
+                          editable={!isBlocked && !uploadingImage && !sendingMessage}
+                        />
                         <TouchableOpacity
                           style={[
-                            styles.imageButton,
+                            styles.send,
                             (isBlocked || uploadingImage || sendingMessage) &&
                               styles.disabled,
                           ]}
-                          onPress={chooseChatImage}
-                          disabled={isBlocked || uploadingImage || sendingMessage}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            uploadingImage ? 'Bild wird hochgeladen' : 'Bild auswählen'
+                          onPress={() => void sendMessage()}
+                          disabled={
+                            isBlocked ||
+                            uploadingImage ||
+                            sendingMessage ||
+                            (!selectedProfile && !selectedGroup) ||
+                            !messageDraft.trim()
                           }
                         >
-                          <Text style={styles.imageButtonText}>
-                            {uploadingImage ? 'Lädt …' : 'Bild'}
+                          <Text style={styles.primaryText}>
+                            {sendingMessage ? 'Sendet …' : 'Senden'}
                           </Text>
                         </TouchableOpacity>
-                      )}
-                      <TextInput
-                        style={styles.messageInput}
-                        value={messageDraft}
-                        onChangeText={setMessageDraft}
-                        placeholder="Nachricht..."
-                        placeholderTextColor="#71717A"
-                        maxLength={1000}
-                        editable={!isBlocked && !uploadingImage && !sendingMessage}
-                      />
-                      <TouchableOpacity
-                        style={[
-                          styles.send,
-                          (isBlocked || uploadingImage || sendingMessage) &&
-                            styles.disabled,
-                        ]}
-                        onPress={() => void sendMessage()}
-                        disabled={
-                          isBlocked ||
-                          uploadingImage ||
-                          sendingMessage ||
-                          (!selectedProfile && !selectedGroup) ||
-                          !messageDraft.trim()
-                        }
-                      >
-                        <Text style={styles.primaryText}>
-                          {sendingMessage ? 'Sendet …' : 'Senden'}
-                        </Text>
-                      </TouchableOpacity>
+                      </View>
                     </View>
                   </>
                 ) : (
@@ -2215,12 +2409,35 @@ const styles = StyleSheet.create({
   own: { alignSelf: 'flex-end', backgroundColor: '#E11D48' },
   other: { alignSelf: 'flex-start', backgroundColor: '#27272A' },
   messageText: { color: '#FFF', fontSize: 13 },
+  replyQuote: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderLeftWidth: 2,
+    borderLeftColor: '#FDA4AF',
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    marginBottom: 5,
+  },
+  replyQuoteLabel: { color: '#FDA4AF', fontSize: 9, fontWeight: '800' },
+  replyQuoteText: { color: '#E4E4E7', fontSize: 10, marginTop: 2 },
   messageSender: {
     color: '#FDA4AF',
     fontSize: 10,
     fontWeight: '800',
     marginBottom: 3,
   },
+  messageActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 5 },
+  messageAction: { color: '#E4E4E7', fontSize: 9, fontWeight: '800' },
+  messageDelete: { color: '#FECACA', fontSize: 9, fontWeight: '800' },
+  disabledText: { opacity: 0.55 },
+  deleteConfirmation: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 5,
+  },
+  deleteConfirmText: { color: '#FECACA', fontSize: 9, fontWeight: '700' },
   reactionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2275,7 +2492,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 5,
   },
-  composer: { flexDirection: 'row', gap: 7, marginTop: 8 },
+  composerArea: { gap: 6, marginTop: 8 },
+  replyComposer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#27272A',
+    borderLeftWidth: 3,
+    borderLeftColor: '#FDA4AF',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  replyComposerText: { flex: 1, minWidth: 0 },
+  composer: { flexDirection: 'row', gap: 7 },
   imageButton: {
     backgroundColor: '#27272A',
     borderRadius: 999,

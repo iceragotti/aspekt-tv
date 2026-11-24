@@ -287,7 +287,9 @@ export default function App() {
   const hero = visibleArticles[0];
 
   const visiblePosts = posts.filter((post) => {
-    if (post.status !== 'Freigegeben') return false;
+    const ownPendingPost =
+      post.status === 'Zur Prüfung' && post.handle === '@mein_creator';
+    if (post.status !== 'Freigegeben' && !ownPendingPost) return false;
     if (blockedHandles.includes(post.handle) || hiddenPostIds.includes(post.id)) return false;
     if (ageMode === 'U18' && (post.rating === '18+' || containsProtected(post.text))) return false;
     return true;
@@ -352,18 +354,33 @@ export default function App() {
   };
 
   const addSocialPost = () => {
-    if (!postText.trim()) return;
-    if (postRating === '18+' && ageMode !== '18+') return;
-    if (containsProtected(postText)) {
-      if (ageMode !== '18+') return;
-      if (postRating !== '18+') setPostRating('18+');
+    const text = postText.trim();
+    if (!text) {
+      setPulseNotice('Bitte gib zuerst deinen Beitragstext ein.');
+      return;
     }
+    if (postRating === '18+' && ageMode !== '18+') {
+      setPulseNotice('Für einen 18+-Beitrag muss zuerst die Altersfreigabe bestätigt werden.');
+      return;
+    }
+
+    let rating = postRating;
+    if (containsProtected(text)) {
+      if (ageMode !== '18+') {
+        setPulseNotice('Dieser Text kann im U18-Modus nicht eingereicht werden.');
+        return;
+      }
+      rating = '18+';
+    }
+
     setPosts((prev) => [{
-      id: `post-${Date.now()}`, type: 'Text', text: postText.trim(), handle: '@mein_creator',
-      creator: 'Eigener Creator', verified: false, rating: postRating, status: 'Zur Prüfung',
+      id: `post-${Date.now()}`, type: 'Text', text, handle: '@mein_creator',
+      creator: 'Eigener Creator', verified: false, rating, status: 'Zur Prüfung',
       likes: 0, comments: [], history: ['Zur Prüfung eingereicht'],
     }, ...prev]);
     setPostText('');
+    setPostRating('Alle');
+    setPulseNotice('Beitrag eingereicht. Er ist unten für dich sichtbar und wird vor der öffentlichen Freigabe geprüft.');
     logChange('Neuer Social-Beitrag zur Prüfung eingereicht');
   };
 
@@ -475,6 +492,9 @@ export default function App() {
     try {
       getWebStorage()?.removeItem(STORAGE_KEY);
     } catch {}
+    setLoggedIn(false);
+    setRole('Administrator');
+    setLoginModal(false);
     setArticles(INITIAL_ARTICLES);
     setPosts(INITIAL_POSTS);
     setStories(INITIAL_STORIES);
@@ -730,7 +750,17 @@ export default function App() {
 
               <View style={styles.composer}>
                 <Text style={styles.sectionTitle}>Neuer PULSE-Beitrag</Text>
-                <TextInput style={styles.composerInput} value={postText} onChangeText={setPostText} placeholder="Perspektive teilen..." placeholderTextColor="#737373" multiline />
+                <TextInput
+                  style={styles.composerInput}
+                  value={postText}
+                  onChangeText={(text) => {
+                    setPostText(text);
+                    if (pulseNotice) setPulseNotice('');
+                  }}
+                  placeholder="Perspektive teilen..."
+                  placeholderTextColor="#737373"
+                  multiline
+                />
                 <View style={styles.ratingRow}>
                   {(['Alle', '18+'] as const).map((rating) => (
                     <TouchableOpacity
@@ -745,6 +775,7 @@ export default function App() {
                 <TouchableOpacity style={styles.primaryButton} onPress={addSocialPost}>
                   <Text style={styles.primaryButtonText}>Zur Prüfung einreichen</Text>
                 </TouchableOpacity>
+                {pulseNotice !== '' && <Text style={styles.pulseNotice}>{pulseNotice}</Text>}
               </View>
 
               <ConsciousFeedBar onPrivacyPress={() => setTab('Team')} />
@@ -767,6 +798,11 @@ export default function App() {
                     </TouchableOpacity>
                   </View>
                   {post.rating === '18+' && <Text style={styles.adultBadge}>18+</Text>}
+                  {post.status === 'Zur Prüfung' && post.handle === '@mein_creator' && (
+                    <Text style={[styles.statusText, styles.statusReview]}>
+                      Deine Einreichung · Zur Prüfung
+                    </Text>
+                  )}
                   <View style={styles.hashtagRow}>
                     <Text style={styles.hashtagChip}>#Community</Text>
                     <Text style={styles.hashtagChip}>#ASPEKT PULSE</Text>
@@ -801,6 +837,14 @@ export default function App() {
                   </View>
                 </View>
               ))}
+              {visiblePosts.length === 0 && (
+                <View style={styles.helpSection}>
+                  <Text style={styles.sectionTitle}>Noch keine Beiträge im Feed</Text>
+                  <Text style={styles.bodyText}>
+                    Reiche einen PULSE-Beitrag ein oder schau später wieder vorbei.
+                  </Text>
+                </View>
+              )}
               {shareNote !== '' && <Text style={styles.shareToast}>{shareNote}</Text>}
 
               <View style={styles.channelCard}>
@@ -1217,8 +1261,14 @@ export default function App() {
                 {shareNote !== '' && <Text style={styles.bodyText}>{shareNote}</Text>}
                 <Text style={styles.bodyText}>
                   ASPEKT.TV ist ein Medien- und Demo-Projekt. Verantwortlich für redaktionelle Inhalte
-                  ist das jeweilige Medienhaus-Team. App-Daten werden lokal im Browser per localStorage
-                  gespeichert; keine Server-Übermittlung erfolgt in diesem Prototyp.
+                  ist das jeweilige Medienhaus-Team. Demo-Inhalte und Einstellungen dieser App werden
+                  lokal im Browser per localStorage gespeichert und nicht an den ASPEKT-Server übertragen.
+                </Text>
+                <Text style={styles.bodyText}>
+                  Der Direktchat ist davon getrennt: Chatnachrichten und Chatbilder werden separat über
+                  Supabase verarbeitet und gespeichert. Sie sind nicht Teil dieses lokalen Datenexports
+                  oder des Zurücksetzens der Demo-Daten. Für Chatdaten nutze bitte die Datenschutz- und
+                  DSGVO-Funktionen direkt im Direktchat.
                 </Text>
                 <Text style={styles.bodyText}>
                   Der Jugendschutz arbeitet mit U18/18+ Kennzeichnung und Altersprüfung. 18+-Inhalte
@@ -1463,6 +1513,7 @@ const styles = StyleSheet.create({
   commentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 2 },
   commentInput: { flex: 1, minHeight: 42, backgroundColor: '#09090B', borderColor: '#27272A', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, color: '#FFF' },
   commentSend: { color: '#FB7185', fontWeight: '800', padding: 8 },
+  pulseNotice: { color: '#FDE68A', fontSize: 12, lineHeight: 18, fontWeight: '700' },
   shareToast: { alignSelf: 'center', backgroundColor: '#166534', color: '#DCFCE7', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: '800' },
   channelCard: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 },
   channelRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#09090B', borderRadius: 8, padding: 10 },
