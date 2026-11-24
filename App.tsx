@@ -18,6 +18,11 @@ type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 
 type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigegeben';
 type PostStatus = 'Entwurf' | 'Zur Prüfung' | 'Freigegeben' | 'Abgelehnt';
 type AgeRating = 'Alle' | '18+';
+type PulseReaction = '❤️' | '😂' | '👍' | '😮';
+type ReactionCounts = Partial<Record<PulseReaction, number>>;
+type PulseNoticeTone = 'success' | 'error' | 'info';
+
+const PULSE_REACTIONS: PulseReaction[] = ['❤️', '😂', '👍', '😮'];
 
 interface Article {
   id: string;
@@ -54,6 +59,8 @@ interface SocialPost {
   hidden?: boolean;
   soundName?: string;
   saved?: boolean;
+  reactions?: ReactionCounts;
+  myReaction?: PulseReaction | null;
 }
 
 interface Story {
@@ -63,6 +70,8 @@ interface Story {
   text: string;
   rating: AgeRating;
   seen: boolean;
+  reactions?: ReactionCounts;
+  myReaction?: PulseReaction | null;
 }
 
 interface AppState {
@@ -194,6 +203,28 @@ const ROLE_OPTIONS: Role[] = ['Administrator', 'Chefredaktion', 'Ressortleiter',
 const PROTECTED = ['gewalt', 'sex', 'nackt', 'porno', 'droge', 'drogen', 'cannabis', 'kokain', 'waffe', 'blut'];
 const containsProtected = (text: string) => PROTECTED.some((word) => text.toLowerCase().includes(word));
 
+const nextReactionState = (
+  counts: ReactionCounts | undefined,
+  currentReaction: PulseReaction | null | undefined,
+  selectedReaction: PulseReaction,
+) => {
+  const nextCounts = { ...(counts ?? {}) };
+  if (currentReaction) {
+    nextCounts[currentReaction] = Math.max(
+      0,
+      (nextCounts[currentReaction] ?? 0) - 1,
+    );
+  }
+
+  const myReaction =
+    currentReaction === selectedReaction ? null : selectedReaction;
+  if (myReaction) {
+    nextCounts[myReaction] = (nextCounts[myReaction] ?? 0) + 1;
+  }
+
+  return { reactions: nextCounts, myReaction };
+};
+
 export default function App() {
   const [initial] = useState(loadState);
   const [tab, setTab] = useState<'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz'>('News');
@@ -222,12 +253,22 @@ export default function App() {
   const [cmsFilter, setCmsFilter] = useState<ArticleStatus | 'Alle'>('Alle');
   const [editor, setEditor] = useState<Article | null>(null);
   const [pulseComment, setPulseComment] = useState('');
-  const [pulseNotice, setPulseNotice] = useState('');
+  const [pulseNotice, setPulseNotice] = useState<{
+    message: string;
+    tone: PulseNoticeTone;
+  } | null>(null);
   const [postText, setPostText] = useState('');
   const [postRating, setPostRating] = useState<AgeRating>('Alle');
   const [storyIndex, setStoryIndex] = useState<number | null>(null);
   const [storyText, setStoryText] = useState('');
   const [storyRating, setStoryRating] = useState<AgeRating>('Alle');
+  const [storyNotice, setStoryNotice] = useState<{
+    message: string;
+    tone: PulseNoticeTone;
+  } | null>(null);
+  const [postNotices, setPostNotices] = useState<
+    Record<string, { message: string; tone: PulseNoticeTone }>
+  >({});
   const [shareNote, setShareNote] = useState('');
   const [followed, setFollowed] = useState<string[]>(
     initial.followed ?? [],
@@ -294,6 +335,9 @@ export default function App() {
     if (ageMode === 'U18' && (post.rating === '18+' || containsProtected(post.text))) return false;
     return true;
   });
+  const pendingPulseCount = visiblePosts.filter(
+    (post) => post.status === 'Zur Prüfung' && post.handle === '@mein_creator',
+  ).length;
 
   const shortsClips = posts.filter((post) =>
     post.type === 'Clip' &&
@@ -330,6 +374,18 @@ export default function App() {
   };
 
   const logChange = (message: string) => setCmsHistory((prev) => [`${TODAY} · ${message}`, ...prev].slice(0, 40));
+  const showPulseNotice = (message: string, tone: PulseNoticeTone = 'info') =>
+    setPulseNotice({ message, tone });
+  const showStoryNotice = (message: string, tone: PulseNoticeTone = 'info') =>
+    setStoryNotice({ message, tone });
+  const showPostNotice = (
+    postId: string,
+    message: string,
+    tone: PulseNoticeTone = 'info',
+  ) => setPostNotices((previous) => ({
+    ...previous,
+    [postId]: { message, tone },
+  }));
 
   const submitArticle = (article: Article) => {
     setArticles((prev) => prev.map((item) => item.id === article.id
@@ -356,18 +412,21 @@ export default function App() {
   const addSocialPost = () => {
     const text = postText.trim();
     if (!text) {
-      setPulseNotice('Bitte gib zuerst deinen Beitragstext ein.');
+      showPulseNotice('Bitte gib zuerst deinen Beitragstext ein.', 'error');
       return;
     }
     if (postRating === '18+' && ageMode !== '18+') {
-      setPulseNotice('Für einen 18+-Beitrag muss zuerst die Altersfreigabe bestätigt werden.');
+      showPulseNotice(
+        'Für einen 18+-Beitrag muss zuerst die Altersfreigabe bestätigt werden.',
+        'error',
+      );
       return;
     }
 
     let rating = postRating;
     if (containsProtected(text)) {
       if (ageMode !== '18+') {
-        setPulseNotice('Dieser Text kann im U18-Modus nicht eingereicht werden.');
+        showPulseNotice('Dieser Text kann im U18-Modus nicht eingereicht werden.', 'error');
         return;
       }
       rating = '18+';
@@ -377,10 +436,14 @@ export default function App() {
       id: `post-${Date.now()}`, type: 'Text', text, handle: '@mein_creator',
       creator: 'Eigener Creator', verified: false, rating, status: 'Zur Prüfung',
       likes: 0, comments: [], history: ['Zur Prüfung eingereicht'],
+      reactions: {}, myReaction: null,
     }, ...prev]);
     setPostText('');
     setPostRating('Alle');
-    setPulseNotice('Beitrag eingereicht. Er ist unten für dich sichtbar und wird vor der öffentlichen Freigabe geprüft.');
+    showPulseNotice(
+      'Beitrag eingereicht. Status: Zur Prüfung. Er bleibt für dich sichtbar, bis die Redaktion entscheidet.',
+      'success',
+    );
     logChange('Neuer Social-Beitrag zur Prüfung eingereicht');
   };
 
@@ -446,22 +509,44 @@ export default function App() {
   };
 
   const reportPost = (id: string) => {
+    if (posts.find((post) => post.id === id)?.reported) {
+      showPostNotice(id, 'Dieser Beitrag wurde bereits gemeldet.', 'info');
+      return;
+    }
     setPosts((prev) => prev.map((post) =>
       post.id === id ? { ...post, reported: true } : post,
     ));
+    showPostNotice(id, 'Beitrag wurde zur Prüfung markiert.', 'success');
   };
 
   const hidePost = (id: string, handle: string) => {
     setHiddenPostIds((prev) => prev.includes(id) ? prev : [...prev, id]);
     setBlockedHandles((prev) => prev.includes(handle) ? prev : [...prev, handle]);
+    showPulseNotice('Beitrag ausgeblendet. Dieser Creator wird in deinem Feed blockiert.', 'success');
   };
 
   const addComment = (id: string) => {
-    if (!pulseComment.trim() || containsProtected(pulseComment)) return;
+    const comment = pulseComment.trim();
+    if (!comment) {
+      showPostNotice(id, 'Bitte gib zuerst einen Kommentar ein.', 'error');
+      return;
+    }
+    if (containsProtected(comment)) {
+      showPostNotice(id, 'Dieser Kommentar enthält Inhalte, die im PULSE-Kommentarbereich nicht erlaubt sind.', 'error');
+      return;
+    }
     setPosts((prev) => prev.map((post) => post.id === id
-      ? { ...post, comments: [...post.comments, pulseComment.trim()] }
+      ? { ...post, comments: [...post.comments, comment] }
       : post));
     setPulseComment('');
+    showPostNotice(id, 'Kommentar hinzugefügt.', 'success');
+  };
+
+  const togglePostReaction = (postId: string, reaction: PulseReaction) => {
+    setPosts((previous) => previous.map((post) => post.id === postId
+      ? { ...post, ...nextReactionState(post.reactions, post.myReaction, reaction) }
+      : post));
+    showPostNotice(postId, 'Deine Reaktion wurde gespeichert.', 'success');
   };
 
   const exportData = () => {
@@ -519,19 +604,63 @@ export default function App() {
     setDailyUsageDate(new Date().toISOString().slice(0, 10));
     setAgeNotice('');
     setBirthYear('');
+    setStoryIndex(null);
+    setStoryNotice(null);
+    setPulseNotice(null);
+    setPostNotices({});
   };
 
   const openTel = (number: string) => void Linking.openURL(`tel:${number}`);
 
   const visibleStories = ageMode === '18+' ? stories : stories.filter((story) => story.rating === 'Alle');
+  const unseenStoryCount = visibleStories.filter((story) => !story.seen).length;
+
+  const openStory = (storyId: string) => {
+    const index = visibleStories.findIndex((story) => story.id === storyId);
+    if (index < 0) return;
+    setStories((previous) => previous.map((story) =>
+      story.id === storyId ? { ...story, seen: true } : story,
+    ));
+    setStoryIndex(index);
+    setStoryNotice(null);
+  };
+
+  const changeStory = (direction: -1 | 1) => {
+    if (storyIndex === null || visibleStories.length === 0) return;
+    const nextIndex =
+      (storyIndex + direction + visibleStories.length) % visibleStories.length;
+    const nextStory = visibleStories[nextIndex];
+    if (!nextStory) return;
+    setStories((previous) => previous.map((story) =>
+      story.id === nextStory.id ? { ...story, seen: true } : story,
+    ));
+    setStoryIndex(nextIndex);
+    setStoryNotice(null);
+  };
+
+  const toggleStoryReaction = (storyId: string, reaction: PulseReaction) => {
+    setStories((previous) => previous.map((story) => story.id === storyId
+      ? { ...story, ...nextReactionState(story.reactions, story.myReaction, reaction) }
+      : story));
+    showStoryNotice('Deine Reaktion wurde gespeichert.', 'success');
+  };
 
   const createStory = () => {
-    if (!storyText.trim() || (storyRating === '18+' && ageMode !== '18+')) return;
+    const text = storyText.trim();
+    if (!text) {
+      showStoryNotice('Bitte gib zuerst deinen Story-Text ein.', 'error');
+      return;
+    }
+    if (storyRating === '18+' && ageMode !== '18+') {
+      showStoryNotice('Für eine 18+-Story muss zuerst die Altersfreigabe bestätigt werden.', 'error');
+      return;
+    }
     setStories((prev) => [...prev, {
       id: `story-${Date.now()}`, creator: 'Eigener Creator', handle: '@mein_creator',
-      text: storyText.trim(), rating: storyRating, seen: false,
+      text, rating: storyRating, seen: false, reactions: {}, myReaction: null,
     }]);
     setStoryText('');
+    showStoryNotice('Story erstellt und in deiner Story-Leiste gespeichert.', 'success');
   };
 
   const breaking = breakingApproved
@@ -715,9 +844,21 @@ export default function App() {
                   <Text style={styles.chatButtonText}>Direktnachrichten</Text>
                 </TouchableOpacity>
               </View>
+              <View style={styles.pulseOverview}>
+                <Text style={styles.pulseOverviewTitle}>PULSE-Status</Text>
+                <Text style={styles.pulseOverviewText}>
+                  {visiblePosts.length} Beiträge sichtbar · {pendingPulseCount} eigene Einreichungen in Prüfung
+                </Text>
+              </View>
+              <View style={styles.storyHeader}>
+                <Text style={styles.sectionTitle}>Stories</Text>
+                <Text style={styles.storySummary}>
+                  {visibleStories.length} verfügbar · {unseenStoryCount} ungesehen
+                </Text>
+              </View>
               <View style={styles.storyRail}>
                 {visibleStories.map((story) => (
-                  <TouchableOpacity key={story.id} style={styles.story} onPress={() => setStoryIndex(visibleStories.indexOf(story))}>
+                  <TouchableOpacity key={story.id} style={styles.story} onPress={() => openStory(story.id)}>
                     <View style={[styles.storyRing, story.seen && styles.storySeen]}>
                       <Text style={styles.storyInitial}>{story.creator.charAt(0)}</Text>
                     </View>
@@ -729,6 +870,9 @@ export default function App() {
                     </Text>
                   </TouchableOpacity>
                 ))}
+                {visibleStories.length === 0 && (
+                  <Text style={styles.storySummary}>Im aktuellen Schutzmodus sind keine Stories verfügbar.</Text>
+                )}
               </View>
 
               {storyIndex !== null && visibleStories[storyIndex] && (
@@ -738,10 +882,72 @@ export default function App() {
                       <View style={styles.progress}><View style={[styles.progressFill, { width: `${((storyIndex + 1) / visibleStories.length) * 100}%` }]} /></View>
                       <Text style={styles.cardTitle}>{visibleStories[storyIndex].creator}</Text>
                       <View style={styles.storyCard}><Text style={styles.storyText}>{visibleStories[storyIndex].text}</Text></View>
+                      <View style={styles.storyStatusRow}>
+                        <View style={[
+                          styles.storyStatusBadge,
+                          visibleStories[storyIndex].seen
+                            ? styles.storySeenBadge
+                            : styles.storyNewBadge,
+                        ]}>
+                          <Text style={styles.storyStatusBadgeText}>
+                            {visibleStories[storyIndex].seen ? 'Gesehen' : 'Neu'}
+                          </Text>
+                        </View>
+                        <Text style={styles.storySummary}>
+                          {Object.values(visibleStories[storyIndex].reactions ?? {})
+                            .reduce((total, count) => total + (count ?? 0), 0)} Reaktionen
+                        </Text>
+                      </View>
+                      <View style={styles.reactionRow}>
+                        {PULSE_REACTIONS.map((reaction) => {
+                          const selected = visibleStories[storyIndex].myReaction === reaction;
+                          const count = visibleStories[storyIndex].reactions?.[reaction] ?? 0;
+                          return (
+                            <TouchableOpacity
+                              key={reaction}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected }}
+                              style={[styles.reactionChip, selected && styles.reactionChipSelected]}
+                              onPress={() => toggleStoryReaction(
+                                visibleStories[storyIndex].id,
+                                reaction,
+                              )}
+                            >
+                              <Text style={styles.reactionText}>
+                                {reaction} {count}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                      <Text style={styles.reactionHint}>
+                        Erneut tippen, um deine Reaktion zu entfernen.
+                      </Text>
+                      {storyNotice && (
+                        <View style={[
+                          styles.feedbackBanner,
+                          storyNotice.tone === 'success'
+                            ? styles.feedbackBannerSuccess
+                            : storyNotice.tone === 'error'
+                              ? styles.feedbackBannerError
+                              : styles.feedbackBannerInfo,
+                        ]}>
+                          <Text style={[
+                            styles.pulseNotice,
+                            storyNotice.tone === 'success'
+                              ? styles.noticeSuccess
+                              : storyNotice.tone === 'error'
+                                ? styles.noticeError
+                                : styles.noticeInfo,
+                          ]}>
+                            {storyNotice.message}
+                          </Text>
+                        </View>
+                      )}
                       <View style={styles.modalActions}>
-                        <TouchableOpacity onPress={() => setStoryIndex((storyIndex - 1 + visibleStories.length) % visibleStories.length)}><Text style={styles.modalAction}>Zurück</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => setStoryIndex(null)}><Text style={styles.modalAction}>Schließen</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => setStoryIndex((storyIndex + 1) % visibleStories.length)}><Text style={styles.modalAction}>Weiter</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => changeStory(-1)}><Text style={styles.modalAction}>Zurück</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => { setStoryNotice(null); setStoryIndex(null); }}><Text style={styles.modalAction}>Schließen</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => changeStory(1)}><Text style={styles.modalAction}>Weiter</Text></TouchableOpacity>
                       </View>
                     </View>
                   </View>
@@ -755,7 +961,7 @@ export default function App() {
                   value={postText}
                   onChangeText={(text) => {
                     setPostText(text);
-                    if (pulseNotice) setPulseNotice('');
+                    if (pulseNotice) setPulseNotice(null);
                   }}
                   placeholder="Perspektive teilen..."
                   placeholderTextColor="#737373"
@@ -775,7 +981,27 @@ export default function App() {
                 <TouchableOpacity style={styles.primaryButton} onPress={addSocialPost}>
                   <Text style={styles.primaryButtonText}>Zur Prüfung einreichen</Text>
                 </TouchableOpacity>
-                {pulseNotice !== '' && <Text style={styles.pulseNotice}>{pulseNotice}</Text>}
+                {pulseNotice && (
+                  <View style={[
+                    styles.feedbackBanner,
+                    pulseNotice.tone === 'success'
+                      ? styles.feedbackBannerSuccess
+                      : pulseNotice.tone === 'error'
+                        ? styles.feedbackBannerError
+                        : styles.feedbackBannerInfo,
+                  ]}>
+                    <Text style={[
+                      styles.pulseNotice,
+                      pulseNotice.tone === 'success'
+                        ? styles.noticeSuccess
+                        : pulseNotice.tone === 'error'
+                          ? styles.noticeError
+                          : styles.noticeInfo,
+                    ]}>
+                      {pulseNotice.message}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               <ConsciousFeedBar onPrivacyPress={() => setTab('Team')} />
@@ -798,11 +1024,21 @@ export default function App() {
                     </TouchableOpacity>
                   </View>
                   {post.rating === '18+' && <Text style={styles.adultBadge}>18+</Text>}
-                  {post.status === 'Zur Prüfung' && post.handle === '@mein_creator' && (
-                    <Text style={[styles.statusText, styles.statusReview]}>
-                      Deine Einreichung · Zur Prüfung
+                  <View style={[
+                    styles.pulseStatusBadge,
+                    post.status === 'Zur Prüfung'
+                      ? styles.pulseStatusReview
+                      : styles.pulseStatusPublished,
+                  ]}>
+                    <Text style={[
+                      styles.pulseStatusText,
+                      post.status === 'Zur Prüfung'
+                        ? styles.pulseStatusReviewText
+                        : styles.pulseStatusPublishedText,
+                    ]}>
+                      {post.status === 'Zur Prüfung' ? 'Deine Einreichung · Zur Prüfung' : 'Veröffentlicht'}
                     </Text>
-                  )}
+                  </View>
                   <View style={styles.hashtagRow}>
                     <Text style={styles.hashtagChip}>#Community</Text>
                     <Text style={styles.hashtagChip}>#ASPEKT PULSE</Text>
@@ -825,12 +1061,51 @@ export default function App() {
                       <Text style={styles.actionText}>{post.saved ? '★ Gemerkt' : '☆ Merken'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => reportPost(post.id)}>
-                      <Text style={styles.actionText}>⚑ Melden</Text>
+                      <Text style={styles.actionText}>{post.reported ? '✓ Gemeldet' : '⚑ Melden'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity onPress={() => hidePost(post.id, post.handle)}>
                       <Text style={styles.actionText}>Ausblenden / Blockieren</Text>
                     </TouchableOpacity>
                   </View>
+                  <View style={styles.reactionRow}>
+                    {PULSE_REACTIONS.map((reaction) => {
+                      const selected = post.myReaction === reaction;
+                      const count = post.reactions?.[reaction] ?? 0;
+                      return (
+                        <TouchableOpacity
+                          key={reaction}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          style={[styles.reactionChip, selected && styles.reactionChipSelected]}
+                          onPress={() => togglePostReaction(post.id, reaction)}
+                        >
+                          <Text style={styles.reactionText}>{reaction} {count}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <Text style={styles.reactionHint}>Reaktion wählen; erneut tippen zum Entfernen</Text>
+                  </View>
+                  {postNotices[post.id] && (
+                    <View style={[
+                      styles.feedbackBanner,
+                      postNotices[post.id].tone === 'success'
+                        ? styles.feedbackBannerSuccess
+                        : postNotices[post.id].tone === 'error'
+                          ? styles.feedbackBannerError
+                          : styles.feedbackBannerInfo,
+                    ]}>
+                      <Text style={[
+                        styles.pulseNotice,
+                        postNotices[post.id].tone === 'success'
+                          ? styles.noticeSuccess
+                          : postNotices[post.id].tone === 'error'
+                            ? styles.noticeError
+                            : styles.noticeInfo,
+                      ]}>
+                        {postNotices[post.id].message}
+                      </Text>
+                    </View>
+                  )}
                   <View style={styles.commentRow}>
                     <TextInput style={styles.commentInput} value={pulseComment} onChangeText={setPulseComment} placeholder="Kommentar..." placeholderTextColor="#737373" />
                     <TouchableOpacity onPress={() => addComment(post.id)}><Text style={styles.commentSend}>Senden</Text></TouchableOpacity>
@@ -989,6 +1264,27 @@ export default function App() {
                   {activeShort.comments.map((comment, index) => (
                     <Text key={`${activeShort.id}-${index}`} style={styles.commentItem}>{comment}</Text>
                   ))}
+                  {postNotices[activeShort.id] && (
+                    <View style={[
+                      styles.feedbackBanner,
+                      postNotices[activeShort.id].tone === 'success'
+                        ? styles.feedbackBannerSuccess
+                        : postNotices[activeShort.id].tone === 'error'
+                          ? styles.feedbackBannerError
+                          : styles.feedbackBannerInfo,
+                    ]}>
+                      <Text style={[
+                        styles.pulseNotice,
+                        postNotices[activeShort.id].tone === 'success'
+                          ? styles.noticeSuccess
+                          : postNotices[activeShort.id].tone === 'error'
+                            ? styles.noticeError
+                            : styles.noticeInfo,
+                      ]}>
+                        {postNotices[activeShort.id].message}
+                      </Text>
+                    </View>
+                  )}
                   <View style={styles.commentRow}>
                     <TextInput
                       style={styles.commentInput}
@@ -1459,6 +1755,11 @@ const styles = StyleSheet.create({
   safetyNotice: { backgroundColor: '#172554', borderColor: '#2563EB', borderWidth: 1, borderRadius: 10, padding: 12, gap: 4 },
   safetyTitle: { color: '#BFDBFE', fontSize: 14, fontWeight: '900' },
   bodyText: { color: '#A1A1AA', fontSize: 13, lineHeight: 19 },
+  pulseOverview: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 10, padding: 12, gap: 4 },
+  pulseOverviewTitle: { color: '#FFF', fontSize: 12, fontWeight: '900' },
+  pulseOverviewText: { color: '#A1A1AA', fontSize: 11, lineHeight: 17 },
+  storyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
+  storySummary: { color: '#A1A1AA', fontSize: 11, fontWeight: '700' },
   storyRail: { flexDirection: 'row', gap: 10, paddingVertical: 8 },
   story: { width: 86, alignItems: 'center', gap: 6 },
   storyRing: { width: 70, height: 70, borderRadius: 35, borderWidth: 3, borderColor: '#E11D48', alignItems: 'center', justifyContent: 'center', backgroundColor: '#18181B', shadowColor: '#E11D48', shadowOpacity: 0.28, shadowRadius: 8 },
@@ -1468,9 +1769,14 @@ const styles = StyleSheet.create({
   storyOrigin: { color: '#71717A', fontSize: 9, fontWeight: '700', textAlign: 'center' },
   progress: { height: 4, backgroundColor: '#27272A', borderRadius: 999, overflow: 'hidden' },
   progressFill: { height: 4, backgroundColor: '#E11D48' },
-  storyModal: { width: '92%', maxWidth: 420, backgroundColor: '#121215', borderRadius: 14, borderWidth: 1, borderColor: '#27272A', padding: 14, gap: 12 },
-  storyCard: { height: 300, backgroundColor: '#09090B', borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 20 },
+  storyModal: { width: '92%', maxWidth: 420, maxHeight: '92%', backgroundColor: '#121215', borderRadius: 14, borderWidth: 1, borderColor: '#27272A', padding: 14, gap: 12 },
+  storyCard: { height: 260, backgroundColor: '#09090B', borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 20 },
   storyText: { color: '#FFF', fontSize: 24, lineHeight: 31, fontWeight: '800', textAlign: 'center' },
+  storyStatusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  storyStatusBadge: { alignSelf: 'flex-start', borderRadius: 999, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 5 },
+  storySeenBadge: { backgroundColor: '#14532D', borderColor: '#166534' },
+  storyNewBadge: { backgroundColor: '#1E3A8A', borderColor: '#2563EB' },
+  storyStatusBadgeText: { color: '#FFF', fontSize: 10, fontWeight: '900' },
   modalActions: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   modalAction: { color: '#FB7185', fontSize: 12, fontWeight: '800', padding: 8 },
   composer: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 14, padding: 16, gap: 12, marginBottom: 4 },
@@ -1503,6 +1809,12 @@ const styles = StyleSheet.create({
   followed: { backgroundColor: '#E11D48' },
   followText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
   adultBadge: { alignSelf: 'flex-start', backgroundColor: '#991B1B', color: '#FFF', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, fontWeight: '900' },
+  pulseStatusBadge: { alignSelf: 'flex-start', borderRadius: 999, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 5 },
+  pulseStatusReview: { backgroundColor: '#422006', borderColor: '#A16207' },
+  pulseStatusPublished: { backgroundColor: '#14532D', borderColor: '#166534' },
+  pulseStatusText: { fontSize: 10, fontWeight: '900' },
+  pulseStatusReviewText: { color: '#FDE68A' },
+  pulseStatusPublishedText: { color: '#86EFAC' },
   socialMediaPlaceholder: { height: 220, backgroundColor: '#09090B', borderColor: '#27272A', borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   socialMediaText: { color: '#52525B', fontSize: 14, fontWeight: '900', letterSpacing: 2 },
   pulseText: { color: '#F4F4F5', fontSize: 16, lineHeight: 24, letterSpacing: 0.1 },
@@ -1510,10 +1822,22 @@ const styles = StyleSheet.create({
   hashtagChip: { color: '#FDA4AF', backgroundColor: '#2A171C', borderColor: '#7F1D1D', borderWidth: 1, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, fontSize: 11, fontWeight: '800' },
   socialActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#27272A' },
   actionText: { color: '#D4D4D8', fontSize: 12, fontWeight: '700' },
+  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 },
+  reactionChip: { backgroundColor: '#09090B', borderColor: '#3F3F46', borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  reactionChipSelected: { backgroundColor: '#3F1D2A', borderColor: '#FB7185' },
+  reactionText: { color: '#F4F4F5', fontSize: 12, fontWeight: '800' },
+  reactionHint: { color: '#71717A', fontSize: 10, fontWeight: '700' },
   commentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 2 },
   commentInput: { flex: 1, minHeight: 42, backgroundColor: '#09090B', borderColor: '#27272A', borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, color: '#FFF' },
   commentSend: { color: '#FB7185', fontWeight: '800', padding: 8 },
-  pulseNotice: { color: '#FDE68A', fontSize: 12, lineHeight: 18, fontWeight: '700' },
+  pulseNotice: { color: '#E4E4E7', fontSize: 12, lineHeight: 18, fontWeight: '700' },
+  feedbackBanner: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 },
+  feedbackBannerSuccess: { backgroundColor: '#052E16', borderColor: '#166534' },
+  feedbackBannerError: { backgroundColor: '#450A0A', borderColor: '#991B1B' },
+  feedbackBannerInfo: { backgroundColor: '#172554', borderColor: '#1D4ED8' },
+  noticeSuccess: { color: '#86EFAC' },
+  noticeError: { color: '#FDA4AF' },
+  noticeInfo: { color: '#BFDBFE' },
   shareToast: { alignSelf: 'center', backgroundColor: '#166534', color: '#DCFCE7', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12, fontWeight: '800' },
   channelCard: { backgroundColor: '#121215', borderColor: '#27272A', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 },
   channelRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#09090B', borderRadius: 8, padding: 10 },
