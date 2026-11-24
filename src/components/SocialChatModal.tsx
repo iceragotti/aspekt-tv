@@ -1,0 +1,2305 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Image,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import type { Session } from '@supabase/supabase-js';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
+
+interface Profile {
+  id: string;
+  handle: string;
+  display_name: string;
+  role: 'user' | 'creator' | 'moderator';
+  age_verified: boolean;
+}
+
+interface ChatMessage {
+  id: string;
+  sender_id: string;
+  receiver_id: string | null;
+  group_id: string | null;
+  body: string;
+  image_path: string | null;
+  created_at: string;
+}
+
+interface ChatGroup {
+  id: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+}
+
+interface MessageRead {
+  message_id: string;
+  user_id: string;
+  read_at: string;
+}
+
+interface MessageReaction {
+  message_id: string;
+  user_id: string;
+  emoji: string;
+}
+
+type RetentionOption = 'off' | '24h' | '7d';
+const REACTION_OPTIONS = ['❤️', '😂', '👍', '😮'] as const;
+
+interface SocialChatModalProps {
+  visible: boolean;
+  onClose: () => void;
+}
+
+const RETENTION_MS: Record<Exclude<RetentionOption, 'off'>, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+};
+const CHAT_IMAGES_BUCKET = 'chat-images';
+const CHAT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const CHAT_IMAGE_URL_TTL_SECONDS = 60 * 60;
+const CHAT_IMAGE_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+];
+
+export default function SocialChatModal({
+  visible,
+  onClose,
+}: SocialChatModalProps) {
+  const [session, setSession] = useState<Session | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [blockedProfiles, setBlockedProfiles] = useState<Profile[]>([]);
+  const [userTab, setUserTab] = useState<'active' | 'blocked' | 'privacy'>('active');
+  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<ChatGroup | null>(null);
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
+  const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messageImageUrls, setMessageImageUrls] = useState<Record<string, string>>({});
+  const [messageImageErrors, setMessageImageErrors] = useState<Record<string, string>>({});
+  const [loadingImageIds, setLoadingImageIds] = useState<string[]>([]);
+  const [messageReads, setMessageReads] = useState<MessageRead[]>([]);
+  const [messageReactions, setMessageReactions] = useState<MessageReaction[]>([]);
+  const [pendingReactionKeys, setPendingReactionKeys] = useState<string[]>([]);
+  const pendingReactionKeysRef = useRef(new Set<string>());
+  const reactionRevisionRef = useRef(0);
+  const chatLoadRevisionRef = useRef(0);
+  const readRevisionRef = useRef(0);
+  const visibleMessageIdsRef = useRef(new Set<string>());
+  const groupLoadRevisionRef = useRef(0);
+  const previewLoadRevisionRef = useRef(0);
+  const lastMessageTimesRef = useRef<Record<string, string>>({});
+  const uploadingImageRef = useRef(false);
+  const sendingMessageRef = useRef(false);
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  const [retention, setRetention] = useState<RetentionOption>('off');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [handle, setHandle] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [messageDraft, setMessageDraft] = useState('');
+  const [groupNameDraft, setGroupNameDraft] = useState('');
+  const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
+  const [groupCreatorOpen, setGroupCreatorOpen] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [status, setStatus] = useState('');
+  const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+
+  const isExpiredMessage = (createdAt: string, mode: RetentionOption): boolean => {
+    if (mode === 'off') return false;
+    const timestamp = Date.parse(createdAt);
+    if (Number.isNaN(timestamp)) return false;
+    return Date.now() - timestamp > RETENTION_MS[mode];
+  };
+
+  const loadProfiles = async (userId: string) => {
+    if (!isSupabaseConfigured) return;
+    const { data: blocks } = await supabase
+      .from('blocked_users')
+      .select('blocked_id')
+      .eq('blocker_id', userId);
+    const ownBlockedIds =
+      ((blocks as { blocked_id: string }[] | null) ?? []).map(
+        (block) => block.blocked_id,
+      );
+    setBlockedIds(ownBlockedIds);
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, handle, display_name, role, age_verified')
+      .order('display_name');
+    const allOtherProfiles = ((data as Profile[] | null) ?? []).filter(
+      (profile) => profile.id !== userId,
+    );
+
+    setProfiles(
+      allOtherProfiles.filter((profile) => !ownBlockedIds.includes(profile.id)),
+    );
+    setBlockedProfiles(
+      allOtherProfiles.filter((profile) => ownBlockedIds.includes(profile.id)),
+    );
+  };
+
+  const loadGroups = async (userId: string) => {
+    if (!isSupabaseConfigured) return;
+    const revision = ++groupLoadRevisionRef.current;
+    const { data: memberships, error: membershipError } = await supabase
+      .from('chat_group_members')
+      .select('group_id')
+      .eq('user_id', userId);
+    if (revision !== groupLoadRevisionRef.current) return;
+    if (membershipError) {
+      setStatus(`Gruppen konnten nicht geladen werden: ${membershipError.message}`);
+      return;
+    }
+
+    const groupIds = [
+      ...new Set(
+        ((memberships as { group_id: string }[] | null) ?? []).map(
+          (membership) => membership.group_id,
+        ),
+      ),
+    ];
+    if (groupIds.length === 0) {
+      setGroups([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('chat_groups')
+      .select('id, name, created_by, created_at')
+      .in('id', groupIds)
+      .order('created_at', { ascending: false });
+    if (revision !== groupLoadRevisionRef.current) return;
+    if (error) {
+      setStatus(`Gruppen konnten nicht geladen werden: ${error.message}`);
+      return;
+    }
+    const nextGroups = (data as ChatGroup[] | null) ?? [];
+    setGroups(nextGroups);
+    setSelectedGroup((current) => {
+      if (!current) return null;
+      const latest = nextGroups.find((group) => group.id === current.id);
+      if (!latest) return null;
+      return current.name === latest.name ? current : latest;
+    });
+  };
+
+  const loadChatPreviews = async (userId: string) => {
+    if (!isSupabaseConfigured) return;
+    const revision = ++previewLoadRevisionRef.current;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('sender_id, receiver_id, group_id, body, image_path, created_at')
+      .order('created_at', { ascending: false })
+      .limit(250);
+    if (revision !== previewLoadRevisionRef.current) return;
+    if (error) {
+      setStatus(`Chat-Vorschauen konnten nicht geladen werden: ${error.message}`);
+      return;
+    }
+
+    const previews: Record<string, string> = {};
+    const previewTimes: Record<string, string> = {};
+    for (const message of (data as Array<{
+      sender_id: string;
+      receiver_id: string | null;
+      group_id: string | null;
+      body: string;
+      image_path: string | null;
+      created_at: string;
+    }> | null) ?? []) {
+      const preview = message.image_path
+        ? message.body === 'Bild'
+          ? '🖼 Bild'
+          : message.body
+        : message.body;
+      if (message.group_id) {
+        const key = `group:${message.group_id}`;
+        previews[key] ??= preview;
+        previewTimes[key] ??= message.created_at;
+      } else if (message.receiver_id) {
+        const otherUserId =
+          message.sender_id === userId ? message.receiver_id : message.sender_id;
+        const key = `user:${otherUserId}`;
+        previews[key] ??= preview;
+        previewTimes[key] ??= message.created_at;
+      }
+    }
+    lastMessageTimesRef.current = previewTimes;
+    setLastMessages(previews);
+  };
+
+  const updateChatPreview = (message: ChatMessage) => {
+    const key = message.group_id
+      ? `group:${message.group_id}`
+      : `user:${message.sender_id === session?.user.id
+          ? message.receiver_id ?? ''
+          : message.sender_id}`;
+    const previousTime = lastMessageTimesRef.current[key];
+    if (previousTime && previousTime > message.created_at) return;
+    lastMessageTimesRef.current[key] = message.created_at;
+    previewLoadRevisionRef.current += 1;
+    setLastMessages((previous) => ({
+      ...previous,
+      [key]: message.image_path
+        ? message.body === 'Bild'
+          ? '🖼 Bild'
+          : message.body
+        : message.body,
+    }));
+  };
+
+  const loadBlocks = async (userId: string) => {
+    if (!isSupabaseConfigured) return;
+    const { data } = await supabase
+      .from('blocked_users')
+      .select('blocked_id')
+      .eq('blocker_id', userId);
+    setBlockedIds(
+      ((data as { blocked_id: string }[] | null) ?? []).map(
+        (block) => block.blocked_id,
+      ),
+    );
+  };
+
+  const loadMessages = async (
+    otherUserId: string,
+    groupId: string | null = null,
+    mode: RetentionOption = retention,
+  ) => {
+    if (!session) return;
+    const userId = session.user.id;
+    const reactionRevision = reactionRevisionRef.current;
+    const loadRevision = ++chatLoadRevisionRef.current;
+    let query = supabase
+      .from('messages')
+      .select('id, sender_id, receiver_id, group_id, body, image_path, created_at')
+      .order('created_at', { ascending: true });
+    query = groupId
+      ? query.eq('group_id', groupId)
+      : query.or(
+          `and(sender_id.eq.${userId},receiver_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},receiver_id.eq.${userId})`,
+        );
+    const { data, error } = await query;
+
+    if (loadRevision !== chatLoadRevisionRef.current) return;
+    if (error) {
+      setStatus(`Nachrichten konnten nicht geladen werden: ${error.message}`);
+      return;
+    }
+    const allItems = (data as ChatMessage[] | null) ?? [];
+
+    if (mode !== 'off') {
+      const expiredOwnIds = allItems
+        .filter((item) => item.sender_id === userId && isExpiredMessage(item.created_at, mode))
+        .map((item) => item.id);
+
+      if (expiredOwnIds.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('messages')
+          .delete()
+          .in('id', expiredOwnIds);
+        if (deleteError) setStatus(`Abgelaufene Nachrichten: ${deleteError.message}`);
+      }
+    }
+
+    const visibleItems = allItems.filter(
+      (item) => !isExpiredMessage(item.created_at, mode),
+    );
+    visibleMessageIdsRef.current = new Set(visibleItems.map((item) => item.id));
+    setMessages(visibleItems);
+    const imageResults = await Promise.all(
+      visibleItems
+        .filter(
+          (item): item is ChatMessage & { image_path: string } =>
+            item.image_path !== null,
+        )
+        .map(async (item) => {
+          try {
+            const { data: signedImage, error: imageError } = await supabase.storage
+              .from(CHAT_IMAGES_BUCKET)
+              .createSignedUrl(item.image_path, CHAT_IMAGE_URL_TTL_SECONDS);
+            return {
+              messageId: item.id,
+              url: signedImage?.signedUrl,
+              error: imageError?.message,
+            };
+          } catch (error) {
+            return {
+              messageId: item.id,
+              url: undefined,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : 'Unbekannter Storage-Fehler.',
+            };
+          }
+        }),
+    );
+    if (loadRevision !== chatLoadRevisionRef.current) return;
+    const imageUrls: Record<string, string> = {};
+    const imageErrors: Record<string, string> = {};
+    for (const result of imageResults) {
+      if (result.url) imageUrls[result.messageId] = result.url;
+      if (result.error) imageErrors[result.messageId] = result.error;
+    }
+    setMessageImageUrls(imageUrls);
+    setMessageImageErrors(imageErrors);
+    if (Object.keys(imageErrors).length > 0) {
+      setStatus('Ein oder mehrere Chatbilder konnten nicht geladen werden.');
+    }
+
+    const incomingUnread = visibleItems
+      .filter((item) => item.sender_id !== userId)
+      .map((item) => ({ message_id: item.id, user_id: userId }));
+    if (incomingUnread.length > 0) {
+      const { error: readError } = await supabase
+        .from('message_reads')
+        .upsert(incomingUnread, {
+          onConflict: 'message_id,user_id',
+          ignoreDuplicates: true,
+        });
+      if (readError) setStatus(`Lesestatus konnte nicht gespeichert werden: ${readError.message}`);
+    }
+    if (loadRevision !== chatLoadRevisionRef.current) return;
+
+    const messageIds = visibleItems.map((item) => item.id);
+    if (messageIds.length === 0) {
+      visibleMessageIdsRef.current = new Set();
+      setMessageReads([]);
+      setMessageReactions([]);
+      return;
+    }
+    const readRevision = readRevisionRef.current;
+    const [readsResult, reactionsResult] = await Promise.all([
+      supabase
+        .from('message_reads')
+        .select('message_id, user_id, read_at')
+        .in('message_id', messageIds),
+      supabase
+        .from('message_reactions')
+        .select('message_id, user_id, emoji')
+        .in('message_id', messageIds),
+    ]);
+    if (loadRevision !== chatLoadRevisionRef.current) return;
+    if (readsResult.error) {
+      setStatus(`Lesebestätigungen konnten nicht geladen werden: ${readsResult.error.message}`);
+    } else if (readRevisionRef.current === readRevision) {
+      setMessageReads((readsResult.data as MessageRead[] | null) ?? []);
+    } else {
+      const loadedReads = (readsResult.data as MessageRead[] | null) ?? [];
+      setMessageReads((previous) => {
+        const merged = new Map<string, MessageRead>();
+        for (const read of loadedReads) {
+          merged.set(`${read.message_id}:${read.user_id}`, read);
+        }
+        for (const read of previous) {
+          if (messageIds.includes(read.message_id)) {
+            merged.set(`${read.message_id}:${read.user_id}`, read);
+          }
+        }
+        return [...merged.values()];
+      });
+    }
+    if (reactionsResult.error) {
+      setStatus(`Reaktionen konnten nicht geladen werden: ${reactionsResult.error.message}`);
+    } else if (reactionRevisionRef.current === reactionRevision) {
+      setMessageReactions(
+        (reactionsResult.data as MessageReaction[] | null) ?? [],
+      );
+    }
+  };
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert. Bitte EXPO_PUBLIC_* in der .env-Datei setzen.');
+      return;
+    }
+    let mounted = true;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSession(data.session);
+      if (data.session) {
+        void loadProfiles(data.session.user.id);
+        void loadBlocks(data.session.user.id);
+        void loadGroups(data.session.user.id);
+        void loadChatPreviews(data.session.user.id);
+      }
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      if (nextSession) {
+        void loadProfiles(nextSession.user.id);
+        void loadBlocks(nextSession.user.id);
+        void loadGroups(nextSession.user.id);
+        void loadChatPreviews(nextSession.user.id);
+      } else {
+        chatLoadRevisionRef.current += 1;
+        groupLoadRevisionRef.current += 1;
+        previewLoadRevisionRef.current += 1;
+        setProfiles([]);
+        setBlockedProfiles([]);
+        setUserTab('active');
+        setSelectedProfile(null);
+        setSelectedGroup(null);
+        setGroups([]);
+        setLastMessages({});
+        setMessages([]);
+        setMessageImageUrls({});
+        setMessageImageErrors({});
+        setLoadingImageIds([]);
+        setMessageReads([]);
+        setMessageReactions([]);
+        setBlockedIds([]);
+        setConfirmDeleteAll(false);
+        lastMessageTimesRef.current = {};
+      }
+    });
+
+    return () => {
+      mounted = false;
+      data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    chatLoadRevisionRef.current += 1;
+    visibleMessageIdsRef.current.clear();
+    setMessages([]);
+    setMessageReads([]);
+    setMessageReactions([]);
+    setMessageImageUrls({});
+    setMessageImageErrors({});
+    setLoadingImageIds([]);
+  }, [session?.user.id, selectedProfile?.id, selectedGroup?.id]);
+
+  useEffect(() => {
+    if (!selectedGroup || groups.some((group) => group.id === selectedGroup.id)) {
+      return;
+    }
+    setSelectedGroup(null);
+  }, [groups, selectedGroup]);
+
+  useEffect(() => {
+    if (!session || (!selectedProfile && !selectedGroup)) return;
+    const groupId = selectedGroup?.id ?? null;
+    const otherUserId = selectedProfile?.id ?? '';
+    void loadMessages(otherUserId, groupId, retention);
+
+    const channel = supabase
+      .channel(
+        `chat:${session.user.id}:${groupId ? `group:${groupId}` : `user:${otherUserId}`}`,
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const message = payload.new as ChatMessage;
+          const belongsToChat = groupId
+            ? message.group_id === groupId
+            : ((message.sender_id === session.user.id &&
+                message.receiver_id === otherUserId) ||
+                (message.sender_id === otherUserId &&
+                  message.receiver_id === session.user.id));
+          if (belongsToChat && !isExpiredMessage(message.created_at, retention)) {
+            visibleMessageIdsRef.current.add(message.id);
+            setMessages((prev) =>
+              prev.some((item) => item.id === message.id)
+                ? prev
+                : [...prev, message],
+            );
+            updateChatPreview(message);
+            if (message.image_path) {
+              void supabase.storage
+                .from(CHAT_IMAGES_BUCKET)
+                .createSignedUrl(message.image_path, CHAT_IMAGE_URL_TTL_SECONDS)
+                .then(({ data: signedImage, error: imageError }) => {
+                  if (imageError) {
+                    setMessageImageErrors((previous) => ({
+                      ...previous,
+                      [message.id]: imageError.message,
+                    }));
+                    return;
+                  }
+                  setMessageImageUrls((previous) => ({
+                    ...previous,
+                    [message.id]: signedImage.signedUrl,
+                  }));
+                })
+                .catch((error: unknown) => {
+                  const detail =
+                    error instanceof Error
+                      ? error.message
+                      : 'Unbekannter Storage-Fehler.';
+                  setMessageImageErrors((previous) => ({
+                    ...previous,
+                    [message.id]: detail,
+                  }));
+                });
+            }
+            if (message.sender_id !== session.user.id) {
+              void supabase
+                .from('message_reads')
+                .upsert(
+                  { message_id: message.id, user_id: session.user.id },
+                  { onConflict: 'message_id,user_id', ignoreDuplicates: true },
+                )
+                .then(({ error }) => {
+                  if (error) {
+                    setStatus(`Lesestatus konnte nicht gespeichert werden: ${error.message}`);
+                  } else {
+                    readRevisionRef.current += 1;
+                    setMessageReads((previous) => [
+                      ...previous.filter(
+                        (item) =>
+                          !(
+                            item.message_id === message.id &&
+                            item.user_id === session.user.id
+                          ),
+                      ),
+                      {
+                        message_id: message.id,
+                        user_id: session.user.id,
+                        read_at: new Date().toISOString(),
+                      },
+                    ]);
+                  }
+                });
+            }
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'message_reactions' },
+        (payload) => {
+          const reaction = payload.new as MessageReaction;
+          reactionRevisionRef.current += 1;
+          setMessageReactions((previous) => [
+            ...previous.filter(
+              (item) =>
+                !(
+                  item.message_id === reaction.message_id &&
+                  item.user_id === reaction.user_id
+                ),
+            ),
+            reaction,
+          ]);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'message_reactions' },
+        (payload) => {
+          const reaction = payload.new as MessageReaction;
+          reactionRevisionRef.current += 1;
+          setMessageReactions((previous) => [
+            ...previous.filter(
+              (item) =>
+                !(
+                  item.message_id === reaction.message_id &&
+                  item.user_id === reaction.user_id
+                ),
+            ),
+            reaction,
+          ]);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'message_reactions' },
+        (payload) => {
+          const reaction = payload.old as Pick<
+            MessageReaction,
+            'message_id' | 'user_id'
+          >;
+          reactionRevisionRef.current += 1;
+          setMessageReactions((previous) =>
+            previous.filter(
+              (item) =>
+                !(
+                  item.message_id === reaction.message_id &&
+                  item.user_id === reaction.user_id
+                ),
+            ),
+          );
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'message_reads' },
+        (payload) => {
+          if (payload.eventType === 'DELETE') {
+            const read = payload.old as Pick<MessageRead, 'message_id' | 'user_id'>;
+            if (!visibleMessageIdsRef.current.has(read.message_id)) return;
+            readRevisionRef.current += 1;
+            setMessageReads((previous) =>
+              previous.filter(
+                (item) =>
+                  item.message_id !== read.message_id ||
+                  item.user_id !== read.user_id,
+              ),
+            );
+            return;
+          }
+          const read = payload.new as MessageRead;
+          if (!visibleMessageIdsRef.current.has(read.message_id)) return;
+          readRevisionRef.current += 1;
+          setMessageReads((previous) => [
+            ...previous.filter(
+              (item) =>
+                item.message_id !== read.message_id ||
+                item.user_id !== read.user_id,
+            ),
+            read,
+          ]);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [selectedProfile, selectedGroup, session, retention]);
+
+  useEffect(() => {
+    if (session) void loadChatPreviews(session.user.id);
+  }, [session, messages]);
+
+  useEffect(() => {
+    if (!session) return;
+    const channel = supabase
+      .channel(`chat-list:${session.user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const message = payload.new as ChatMessage;
+          updateChatPreview(message);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_group_members' },
+        (payload) => {
+          const membership = (payload.eventType === 'DELETE'
+            ? payload.old
+            : payload.new) as { user_id?: string } | null;
+          if (membership?.user_id !== session.user.id) return;
+          void loadGroups(session.user.id);
+          void loadChatPreviews(session.user.id);
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_groups' },
+        () => {
+          void loadGroups(session.user.id);
+        },
+      )
+      .subscribe();
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!visible || !session) return;
+    void loadProfiles(session.user.id);
+    void loadGroups(session.user.id);
+    void loadChatPreviews(session.user.id);
+  }, [visible, session]);
+
+  const register = async () => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    setStatus('');
+    if (!email.trim() || !password.trim()) {
+      setStatus('E-Mail und Passwort sind erforderlich.');
+      return;
+    }
+    const { error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: {
+        data: {
+          handle: handle.trim(),
+          display_name: displayName.trim(),
+        },
+      },
+    });
+    setStatus(error ? error.message : 'Registrierung erfolgreich. Bitte E-Mail bestätigen.');
+  };
+
+  const login = async () => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    setStatus('');
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    setStatus(error ? error.message : 'Angemeldet.');
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const sendMessage = async () => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    if (
+      sendingMessageRef.current ||
+      uploadingImageRef.current ||
+      !session ||
+      (!selectedProfile && !selectedGroup) ||
+      !messageDraft.trim() ||
+      (selectedProfile && blockedIds.includes(selectedProfile.id))
+    ) return;
+    sendingMessageRef.current = true;
+    setSendingMessage(true);
+    const message = {
+      sender_id: session.user.id,
+      receiver_id: selectedProfile?.id ?? null,
+      group_id: selectedGroup?.id ?? null,
+      body: messageDraft.trim(),
+      image_path: null,
+    };
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert(message)
+        .select('id, sender_id, receiver_id, group_id, body, image_path, created_at')
+        .single();
+      if (error) throw error;
+      const sentMessage = data as ChatMessage;
+      setMessages((previous) =>
+        previous.some((item) => item.id === sentMessage.id)
+          ? previous
+          : [...previous, sentMessage],
+      );
+      updateChatPreview(sentMessage);
+      setMessageDraft('');
+      setStatus('Nachricht gesendet.');
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      setStatus(`Nachricht konnte nicht gesendet werden: ${detail}`);
+    } finally {
+      sendingMessageRef.current = false;
+      setSendingMessage(false);
+    }
+  };
+
+  const uploadChatImage = async (file: File) => {
+    if (
+      uploadingImageRef.current ||
+      sendingMessageRef.current ||
+      !session ||
+      (!selectedProfile && !selectedGroup) ||
+      (selectedProfile && blockedIds.includes(selectedProfile.id))
+    ) return;
+    if (!CHAT_IMAGE_MIME_TYPES.includes(file.type)) {
+      setStatus('Bitte wähle ein JPEG-, PNG-, WebP- oder GIF-Bild aus.');
+      return;
+    }
+    if (file.size === 0) {
+      setStatus('Die ausgewählte Datei enthält keine Bilddaten.');
+      return;
+    }
+    if (file.size > CHAT_IMAGE_MAX_BYTES) {
+      setStatus('Das Bild darf höchstens 8 MB groß sein.');
+      return;
+    }
+
+    uploadingImageRef.current = true;
+    setUploadingImage(true);
+    setStatus('Bild wird hochgeladen …');
+    let uploadedPath: string | null = null;
+    let objectUploaded = false;
+    let messageSaved = false;
+    try {
+      const extensionByMimeType: Record<string, string> = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+      };
+      const fileToken = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      uploadedPath = `${session.user.id}/${fileToken}.${extensionByMimeType[file.type]}`;
+      const { error: uploadError } = await supabase.storage
+        .from(CHAT_IMAGES_BUCKET)
+        .upload(uploadedPath, file, {
+          cacheControl: '3600',
+          contentType: file.type,
+          upsert: false,
+        });
+      if (uploadError) throw uploadError;
+      objectUploaded = true;
+
+      const message = {
+        sender_id: session.user.id,
+        receiver_id: selectedProfile?.id ?? null,
+        group_id: selectedGroup?.id ?? null,
+        body: messageDraft.trim() || 'Bild',
+        image_path: uploadedPath,
+      };
+      const { data, error: messageError } = await supabase
+        .from('messages')
+        .insert(message)
+        .select('id, sender_id, receiver_id, group_id, body, image_path, created_at')
+        .single();
+      if (messageError) throw messageError;
+      messageSaved = true;
+
+      const sentMessage = data as ChatMessage;
+      setMessages((previous) =>
+        previous.some((item) => item.id === sentMessage.id)
+          ? previous
+          : [...previous, sentMessage],
+      );
+      updateChatPreview(sentMessage);
+      setMessageDraft('');
+
+      const { data: signedImage, error: signedImageError } = await supabase.storage
+        .from(CHAT_IMAGES_BUCKET)
+        .createSignedUrl(uploadedPath, CHAT_IMAGE_URL_TTL_SECONDS);
+      if (signedImageError) {
+        setMessageImageErrors((previous) => ({
+          ...previous,
+          [sentMessage.id]: signedImageError.message,
+        }));
+        setStatus('Bild wurde gesendet, kann aber gerade nicht angezeigt werden.');
+      } else {
+        setMessageImageUrls((previous) => ({
+          ...previous,
+          [sentMessage.id]: signedImage.signedUrl,
+        }));
+        setStatus('Bild gesendet.');
+      }
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Uploadfehler.';
+      let cleanupDetail = '';
+      if (uploadedPath && objectUploaded && !messageSaved) {
+        const { error: cleanupError } = await supabase.storage
+          .from(CHAT_IMAGES_BUCKET)
+          .remove([uploadedPath]);
+        if (cleanupError) cleanupDetail = ` Das nicht gesendete Bild konnte nicht entfernt werden: ${cleanupError.message}`;
+      }
+      setStatus(`Bild konnte nicht gesendet werden: ${detail}.${cleanupDetail}`);
+    } finally {
+      uploadingImageRef.current = false;
+      setUploadingImage(false);
+    }
+  };
+
+  const chooseChatImage = () => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    if (uploadingImageRef.current || sendingMessageRef.current) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = CHAT_IMAGE_MIME_TYPES.join(',');
+    input.onchange = () => {
+      const file = input.files?.[0];
+      input.value = '';
+      if (file) void uploadChatImage(file);
+    };
+    input.click();
+  };
+
+  const retryMessageImage = async (message: ChatMessage) => {
+    const imagePath = message.image_path;
+    if (!imagePath) return;
+    setLoadingImageIds((previous) =>
+      previous.includes(message.id) ? previous : [...previous, message.id],
+    );
+    setMessageImageErrors((previous) => {
+      const next = { ...previous };
+      delete next[message.id];
+      return next;
+    });
+    try {
+      const { data, error } = await supabase.storage
+        .from(CHAT_IMAGES_BUCKET)
+        .createSignedUrl(imagePath, CHAT_IMAGE_URL_TTL_SECONDS);
+      if (error) throw error;
+      setMessageImageUrls((previous) => ({
+        ...previous,
+        [message.id]: data.signedUrl,
+      }));
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Storage-Fehler.';
+      setMessageImageErrors((previous) => ({
+        ...previous,
+        [message.id]: detail,
+      }));
+    } finally {
+      setLoadingImageIds((previous) => previous.filter((id) => id !== message.id));
+    }
+  };
+
+  const createGroup = async () => {
+    if (!isSupabaseConfigured || !session) {
+      setStatus('Bitte melde dich an, um eine Gruppe zu erstellen.');
+      return;
+    }
+    if (!groupNameDraft.trim() || groupMemberIds.length === 0) {
+      setStatus('Gib einen Gruppennamen ein und wähle mindestens eine Person aus.');
+      return;
+    }
+    setCreatingGroup(true);
+    const { data, error } = await supabase.rpc('create_chat_group', {
+      group_name: groupNameDraft.trim(),
+      member_ids: groupMemberIds,
+    });
+    setCreatingGroup(false);
+    if (error) {
+      setStatus(`Gruppe konnte nicht erstellt werden: ${error.message}`);
+      return;
+    }
+    if (typeof data !== 'string') {
+      setStatus('Gruppenchat wurde ohne gültige Gruppen-ID erstellt.');
+      return;
+    }
+    const groupId = data;
+    const { data: groupData, error: groupError } = await supabase
+      .from('chat_groups')
+      .select('id, name, created_by, created_at')
+      .eq('id', groupId)
+      .single();
+    if (groupError) {
+      setStatus(`Gruppe erstellt, aber konnte nicht geladen werden: ${groupError.message}`);
+      await loadGroups(session.user.id);
+      return;
+    }
+    const group = groupData as ChatGroup;
+    setGroups((previous) => [group, ...previous.filter((item) => item.id !== group.id)]);
+    setSelectedProfile(null);
+    setSelectedGroup(group);
+    setGroupNameDraft('');
+    setGroupMemberIds([]);
+    setStatus('Gruppenchat erstellt.');
+  };
+
+  const toggleGroupMember = (profileId: string) => {
+    setGroupMemberIds((previous) =>
+      previous.includes(profileId)
+        ? previous.filter((id) => id !== profileId)
+        : [...previous, profileId],
+    );
+  };
+
+  const toggleReaction = async (messageId: string, emoji: string) => {
+    if (!session) return;
+    const userId = session.user.id;
+    const pendingKey = `${messageId}:${userId}`;
+    if (pendingReactionKeysRef.current.has(pendingKey)) return;
+
+    const currentReaction = messageReactions.find(
+      (reaction) =>
+        reaction.message_id === messageId &&
+        reaction.user_id === userId,
+    );
+    const nextReaction =
+      currentReaction?.emoji === emoji
+        ? null
+        : { message_id: messageId, user_id: userId, emoji };
+
+    reactionRevisionRef.current += 1;
+    pendingReactionKeysRef.current.add(pendingKey);
+    setPendingReactionKeys((previous) => [...previous, pendingKey]);
+    setMessageReactions((previous) => [
+      ...previous.filter(
+        (reaction) =>
+          !(
+            reaction.message_id === messageId &&
+            reaction.user_id === userId
+          ),
+      ),
+      ...(nextReaction ? [nextReaction] : []),
+    ]);
+
+    try {
+      if (nextReaction) {
+        const { error } = await supabase
+          .from('message_reactions')
+          .upsert(nextReaction, { onConflict: 'message_id,user_id' });
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from('message_reactions')
+          .delete()
+          .eq('message_id', messageId)
+          .eq('user_id', userId)
+          .select('message_id');
+        if (error) throw error;
+        if (!data || data.length === 0) {
+          throw new Error('Die Reaktion wurde nicht gefunden oder konnte nicht entfernt werden.');
+        }
+      }
+    } catch (error) {
+      setMessageReactions((previous) => [
+        ...previous.filter(
+          (reaction) =>
+            !(
+              reaction.message_id === messageId &&
+              reaction.user_id === userId
+            ),
+        ),
+        ...(currentReaction ? [currentReaction] : []),
+      ]);
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      setStatus(`Reaktion konnte nicht aktualisiert werden: ${detail}`);
+    } finally {
+      pendingReactionKeysRef.current.delete(pendingKey);
+      setPendingReactionKeys((previous) =>
+        previous.filter((key) => key !== pendingKey),
+      );
+    }
+  };
+
+  const blockUser = async () => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    if (!session || !selectedProfile) return;
+    const targetProfile = selectedProfile;
+    const { error } = await supabase.from('blocked_users').insert({
+      blocker_id: session.user.id,
+      blocked_id: targetProfile.id,
+    });
+    if (error) {
+      setStatus(error.message);
+      return;
+    }
+    setBlockedIds((prev) =>
+      prev.includes(targetProfile.id) ? prev : [...prev, targetProfile.id],
+    );
+    setProfiles((prev) => prev.filter((profile) => profile.id !== targetProfile.id));
+    setBlockedProfiles((prev) =>
+      prev.some((profile) => profile.id === targetProfile.id)
+        ? prev
+        : [...prev, targetProfile].sort((a, b) =>
+            a.display_name.localeCompare(b.display_name),
+          ),
+    );
+    setSelectedProfile(null);
+    setMessages([]);
+    setStatus('Nutzer wurde blockiert.');
+  };
+
+  const unblockUserById = async (targetUserId: string) => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    if (!session) return;
+    const { error } = await supabase
+      .from('blocked_users')
+      .delete()
+      .eq('blocker_id', session.user.id)
+      .eq('blocked_id', targetUserId);
+    if (error) {
+      setStatus(error.message);
+      return;
+    }
+    setBlockedIds((prev) => prev.filter((id) => id !== targetUserId));
+    setStatus('Blockierung aufgehoben.');
+    await loadProfiles(session.user.id);
+  };
+
+  const unblockUser = async () => {
+    if (!selectedProfile) return;
+    await unblockUserById(selectedProfile.id);
+  };
+
+  const reportUser = async () => {
+    if (!isSupabaseConfigured) {
+      setStatus('Supabase ist nicht konfiguriert.');
+      return;
+    }
+    if (!session || !selectedProfile || !reportReason.trim()) {
+      setStatus('Bitte einen Meldegrund eingeben.');
+      return;
+    }
+    const { error } = await supabase.from('reports').insert({
+      reporter_id: session.user.id,
+      reported_user_id: selectedProfile.id,
+      reason: reportReason.trim(),
+      message_id: reportedMessageId,
+    });
+    setStatus(error ? error.message : 'Meldung wurde abgesendet.');
+    if (!error) {
+      setReportReason('');
+      setReportedMessageId(null);
+    }
+  };
+
+  const exportMyData = async () => {
+    if (!isSupabaseConfigured || !session) return;
+    const userId = session.user.id;
+    setStatus('DSGVO-Datenexport wird erstellt...');
+
+    const [
+      profileRes,
+      messagesRes,
+      blocksRes,
+      reportsRes,
+      groupsRes,
+      groupDetailsRes,
+      readsRes,
+      reactionsRes,
+    ] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: true }),
+      supabase.from('blocked_users').select('*').eq('blocker_id', userId),
+      supabase.from('reports').select('*').eq('reporter_id', userId),
+      supabase.from('chat_group_members').select('group_id, role, joined_at').eq('user_id', userId),
+      supabase.from('chat_groups').select('id, name, created_by, created_at'),
+      supabase.from('message_reads').select('*').eq('user_id', userId),
+      supabase.from('message_reactions').select('*').eq('user_id', userId),
+    ]);
+
+    const failedExport = [
+      profileRes,
+      messagesRes,
+      blocksRes,
+      reportsRes,
+      groupsRes,
+      groupDetailsRes,
+      readsRes,
+      reactionsRes,
+    ].find((result) => result.error);
+    if (failedExport?.error) {
+      setStatus(`DSGVO-Export fehlgeschlagen: ${failedExport.error.message}`);
+      return;
+    }
+
+    const exportPayload = {
+      exported_at: new Date().toISOString(),
+      gdpr_notice: 'DSGVO Art. 15 & 20 Datenauskunft – ASPEKT.TV',
+      account: {
+        id: userId,
+        email: session.user.email ?? null,
+        created_at: session.user.created_at ?? null,
+      },
+      profile: profileRes.data ?? null,
+      messages: messagesRes.data ?? [],
+      blocked_users: blocksRes.data ?? [],
+      reports: reportsRes.data ?? [],
+      group_memberships: groupsRes.data ?? [],
+      group_chats: groupDetailsRes.data ?? [],
+      message_reads: readsRes.data ?? [],
+      message_reactions: reactionsRes.data ?? [],
+    };
+
+    const jsonString = JSON.stringify(exportPayload, null, 2);
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `aspekt-dsgvo-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setStatus('DSGVO-Datenpaket wurde als JSON heruntergeladen.');
+    } else {
+      setStatus(`Export bereit (${(messagesRes.data ?? []).length} Nachrichten erfasst).`);
+    }
+  };
+
+  const deleteMyData = async () => {
+    if (!isSupabaseConfigured || !session) return;
+    const userId = session.user.id;
+    setStatus('Eigene Daten werden gemäß Art. 17 DSGVO gelöscht...');
+
+    const { error: messageDeleteError } = await supabase
+      .from('messages')
+      .delete()
+      .eq('sender_id', userId);
+    if (messageDeleteError) {
+      setStatus(`Gesendete Nachrichten konnten nicht gelöscht werden: ${messageDeleteError.message}`);
+      return;
+    }
+
+    try {
+      while (true) {
+        const { data: files, error: listError } = await supabase.storage
+          .from(CHAT_IMAGES_BUCKET)
+          .list(userId, { limit: 100, offset: 0 });
+        if (listError) throw listError;
+        const paths = (files ?? [])
+          .filter((file) => file.id !== null)
+          .map((file) => `${userId}/${file.name}`);
+        if (paths.length === 0) break;
+        const { error: removeError } = await supabase.storage
+          .from(CHAT_IMAGES_BUCKET)
+          .remove(paths);
+        if (removeError) throw removeError;
+      }
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Unbekannter Storage-Fehler.';
+      setStatus(`Chatbilder konnten nicht gelöscht werden: ${detail}`);
+      return;
+    }
+
+    await supabase.from('message_reads').delete().eq('user_id', userId);
+    await supabase.from('message_reactions').delete().eq('user_id', userId);
+    await supabase.from('chat_group_members').delete().eq('user_id', userId);
+    await supabase.from('blocked_users').delete().eq('blocker_id', userId);
+    await supabase.from('reports').delete().eq('reporter_id', userId);
+    await supabase.from('profiles').delete().eq('id', userId);
+
+    setConfirmDeleteAll(false);
+    setSelectedProfile(null);
+    setMessages([]);
+    await supabase.auth.signOut();
+    setStatus('Eigene Profildaten, gesendete Nachrichten, Chatbilder und Sperren wurden gelöscht.');
+  };
+
+  const isBlocked = selectedProfile
+    ? blockedIds.includes(selectedProfile.id)
+    : false;
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={styles.backdrop}>
+        <View style={styles.modal}>
+          <View style={styles.header}>
+            <Text style={styles.title}>ASPEKT Direktchat</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={styles.close}>Schließen</Text>
+            </TouchableOpacity>
+          </View>
+
+          {!session ? (
+            <ScrollView contentContainerStyle={styles.auth}>
+              <Text style={styles.sectionTitle}>Registrieren / Anmelden</Text>
+              <TextInput
+                style={styles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="E-Mail"
+                placeholderTextColor="#71717A"
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              <TextInput
+                style={styles.input}
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Passwort"
+                placeholderTextColor="#71717A"
+                secureTextEntry
+              />
+              <TextInput
+                style={styles.input}
+                value={handle}
+                onChangeText={setHandle}
+                placeholder="Handle"
+                placeholderTextColor="#71717A"
+                autoCapitalize="none"
+              />
+              <TextInput
+                style={styles.input}
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Anzeigename"
+                placeholderTextColor="#71717A"
+              />
+              <View style={styles.actions}>
+                <TouchableOpacity style={styles.primary} onPress={register}>
+                  <Text style={styles.primaryText}>Registrieren</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.secondary} onPress={login}>
+                  <Text style={styles.secondaryText}>Anmelden</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          ) : (
+            <View style={styles.chatLayout}>
+              <View style={styles.profileList}>
+                <View style={styles.userHeader}>
+                  <Text style={styles.sectionTitle}>Nachrichten</Text>
+                  <TouchableOpacity onPress={logout}>
+                    <Text style={styles.logout}>Logout</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.tabBar}>
+                  <TouchableOpacity
+                    style={[
+                      styles.tabButton,
+                      userTab === 'active' && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setUserTab('active')}
+                  >
+                    <Text
+                      style={[
+                        styles.tabText,
+                        userTab === 'active' && styles.tabTextActive,
+                      ]}
+                    >
+                      Aktiv ({profiles.length + groups.length})
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.tabButton,
+                      userTab === 'blocked' && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setUserTab('blocked')}
+                  >
+                    <Text
+                      style={[
+                        styles.tabText,
+                        userTab === 'blocked' && styles.tabTextActive,
+                      ]}
+                    >
+                      Blockiert ({blockedProfiles.length})
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.tabButton,
+                      userTab === 'privacy' && styles.tabButtonActive,
+                    ]}
+                    onPress={() => setUserTab('privacy')}
+                  >
+                    <Text
+                      style={[
+                        styles.tabText,
+                        userTab === 'privacy' && styles.tabTextActive,
+                      ]}
+                    >
+                      DSGVO
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {userTab === 'active' && (
+                  <ScrollView>
+                    <TouchableOpacity
+                      style={styles.newGroupButton}
+                      onPress={() => setGroupCreatorOpen((open) => !open)}
+                    >
+                      <Text style={styles.newGroupText}>
+                        {groupCreatorOpen ? 'Gruppenerstellung schließen' : '+ Gruppenchat'}
+                      </Text>
+                    </TouchableOpacity>
+                    {groupCreatorOpen && (
+                      <View style={styles.groupCreator}>
+                        <TextInput
+                          style={styles.groupNameInput}
+                          value={groupNameDraft}
+                          onChangeText={setGroupNameDraft}
+                          placeholder="Gruppenname"
+                          placeholderTextColor="#71717A"
+                          maxLength={60}
+                        />
+                        <Text style={styles.groupPickerLabel}>Mitglieder auswählen</Text>
+                        {profiles.map((profile) => {
+                          const selected = groupMemberIds.includes(profile.id);
+                          return (
+                            <TouchableOpacity
+                              key={`pick-${profile.id}`}
+                              style={[
+                                styles.groupMemberOption,
+                                selected && styles.groupMemberSelected,
+                              ]}
+                              onPress={() => toggleGroupMember(profile.id)}
+                            >
+                              <Text style={styles.groupMemberOptionText}>
+                                {selected ? '✓ ' : '+ '}
+                                {profile.display_name}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                        <TouchableOpacity
+                          style={[styles.primary, creatingGroup && styles.disabled]}
+                          onPress={() => void createGroup()}
+                          disabled={creatingGroup}
+                        >
+                          <Text style={styles.primaryText}>
+                            {creatingGroup ? 'Erstellen …' : 'Gruppe erstellen'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                    {groups.map((group) => (
+                      <TouchableOpacity
+                        key={group.id}
+                        style={[
+                          styles.profileRow,
+                          selectedGroup?.id === group.id && styles.profileActive,
+                        ]}
+                        onPress={() => {
+                          setSelectedProfile(null);
+                          setSelectedGroup(group);
+                          setGroupCreatorOpen(false);
+                        }}
+                      >
+                        <Text style={styles.profileName}>◉ {group.name}</Text>
+                        <Text style={styles.conversationPreview} numberOfLines={1}>
+                          {lastMessages[`group:${group.id}`] ?? 'Noch keine Nachrichten'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    {profiles.map((profile) => (
+                      <TouchableOpacity
+                        key={profile.id}
+                        style={[
+                          styles.profileRow,
+                          selectedProfile?.id === profile.id && styles.profileActive,
+                        ]}
+                        onPress={() => {
+                          setSelectedProfile(profile);
+                          setSelectedGroup(null);
+                          setReportedMessageId(null);
+                          setReportReason('');
+                        }}
+                      >
+                        <Text style={styles.profileName}>
+                          {profile.display_name}
+                          {profile.role !== 'user' ? ' ✓' : ''}
+                        </Text>
+                        <Text style={styles.profileHandle}>@{profile.handle}</Text>
+                        <Text style={styles.conversationPreview} numberOfLines={1}>
+                          {lastMessages[`user:${profile.id}`] ?? 'Nachricht schreiben'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+
+                {userTab === 'blocked' && (
+                  <ScrollView>
+                    {blockedProfiles.length === 0 ? (
+                      <Text style={styles.emptyBlockedText}>
+                        Keine blockierten Nutzer.
+                      </Text>
+                    ) : (
+                      blockedProfiles.map((profile) => (
+                        <View key={profile.id} style={styles.blockedRow}>
+                          <View style={styles.blockedInfo}>
+                            <Text style={styles.profileName} numberOfLines={1}>
+                              {profile.display_name}
+                            </Text>
+                            <Text style={styles.profileHandle} numberOfLines={1}>
+                              @{profile.handle}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.unblockButton}
+                            onPress={() => void unblockUserById(profile.id)}
+                          >
+                            <Text style={styles.unblockText}>Entblocken</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))
+                    )}
+                  </ScrollView>
+                )}
+
+                {userTab === 'privacy' && (
+                  <ScrollView contentContainerStyle={styles.privacyPane}>
+                    <View style={styles.privacyCard}>
+                      <Text style={styles.privacyTitle}>Transparente Datenkontrolle</Text>
+                      <Text style={styles.privacyDesc}>
+                        Kein Werbe-Tracking. Beim Löschen werden dein Profil, deine
+                        Sperren, deine Meldungen und von dir gesendete Nachrichten
+                        entfernt (fremde Nachrichten bleiben beim jeweiligen Absender;
+                        das Auth-Login-Konto wird separat verwaltet). Chatbilder
+                        werden privat gespeichert, nur Chatteilnehmern angezeigt und
+                        bei der Datenlöschung mit entfernt.
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.exportButton}
+                      onPress={() => void exportMyData()}
+                    >
+                      <Text style={styles.exportButtonText}>
+                        Daten exportieren (JSON)
+                      </Text>
+                    </TouchableOpacity>
+
+                    {!confirmDeleteAll ? (
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => setConfirmDeleteAll(true)}
+                      >
+                        <Text style={styles.deleteButtonText}>
+                          Eigene Daten löschen
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.confirmBox}>
+                        <Text style={styles.confirmText}>
+                          Profil, gesendete Nachrichten, Sperren & Meldungen löschen?
+                        </Text>
+                        <View style={styles.confirmActions}>
+                          <TouchableOpacity
+                            style={styles.confirmYes}
+                            onPress={() => void deleteMyData()}
+                          >
+                            <Text style={styles.confirmYesText}>Ja, löschen</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.confirmNo}
+                            onPress={() => setConfirmDeleteAll(false)}
+                          >
+                            <Text style={styles.confirmNoText}>Abbrechen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </ScrollView>
+                )}
+              </View>
+
+              <View style={styles.chatPane}>
+                {selectedProfile || selectedGroup ? (
+                  <>
+                    <View style={styles.chatHeader}>
+                      <View>
+                        <Text style={styles.profileName}>
+                          {selectedGroup?.name ?? selectedProfile?.display_name}
+                        </Text>
+                        <Text style={styles.profileHandle}>
+                          {selectedGroup
+                            ? 'Gruppenchat'
+                            : `@${selectedProfile?.handle ?? ''}`}
+                        </Text>
+                      </View>
+                      {selectedProfile && (
+                        <View style={styles.chatActions}>
+                          <TouchableOpacity
+                            style={styles.secondary}
+                            onPress={isBlocked ? unblockUser : blockUser}
+                          >
+                            <Text style={styles.secondaryText}>
+                              {isBlocked ? 'Entblocken' : 'Blockieren'}
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.reportButton}
+                            onPress={reportUser}
+                          >
+                            <Text style={styles.reportText}>Melden</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.retentionRow}>
+                      <Text style={styles.retentionLabel}>Ablaufzeit:</Text>
+                      {(['off', '24h', '7d'] as RetentionOption[]).map((option) => (
+                        <TouchableOpacity
+                          key={option}
+                          style={[
+                            styles.retentionChip,
+                            retention === option && styles.retentionChipActive,
+                          ]}
+                          onPress={() => setRetention(option)}
+                        >
+                          <Text
+                            style={[
+                              styles.retentionText,
+                              retention === option && styles.retentionTextActive,
+                            ]}
+                          >
+                            {option === 'off' ? 'Aus' : option}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    {selectedProfile && (
+                      <TextInput
+                        style={styles.reportInput}
+                        value={reportReason}
+                        onChangeText={setReportReason}
+                        placeholder="Meldegrund"
+                        placeholderTextColor="#71717A"
+                      />
+                    )}
+                    <ScrollView
+                      style={styles.messageList}
+                      contentContainerStyle={styles.messageContent}
+                    >
+                      {messages.map((message) => {
+                        const own = message.sender_id === session.user.id;
+                        const readsForMessage = messageReads.filter(
+                          (read) => read.message_id === message.id,
+                        );
+                        const groupReaders = readsForMessage
+                          .filter((read) => read.user_id !== session.user.id)
+                          .map(
+                            (read) =>
+                              profiles.find((profile) => profile.id === read.user_id)
+                                ?.display_name ?? 'Mitglied',
+                          );
+                        const readReceipt = selectedGroup
+                          ? groupReaders.length > 0
+                            ? `Gesehen von ${groupReaders.slice(0, 2).join(', ')}${
+                                groupReaders.length > 2
+                                  ? ` +${groupReaders.length - 2}`
+                                  : ''
+                              }`
+                            : 'Noch nicht gesehen'
+                          : readsForMessage.some(
+                                (read) => read.user_id === selectedProfile?.id,
+                              )
+                            ? 'Gesehen'
+                            : 'Gesendet';
+                        const imageUrl = messageImageUrls[message.id];
+                        const imageError = messageImageErrors[message.id];
+                        const imageLoading = loadingImageIds.includes(message.id);
+                        const reactionsForMessage = messageReactions.filter(
+                          (reaction) => reaction.message_id === message.id,
+                        );
+                        return (
+                          <View
+                            key={message.id}
+                            style={[styles.message, own ? styles.own : styles.other]}
+                          >
+                            {selectedGroup && !own && (
+                              <Text style={styles.messageSender}>
+                                {profiles.find((profile) => profile.id === message.sender_id)
+                                  ?.display_name ?? 'Mitglied'}
+                              </Text>
+                            )}
+                            {message.image_path && (
+                              <View style={styles.messageImageWrap}>
+                                {imageUrl ? (
+                                  <Image
+                                    style={styles.messageImage}
+                                    source={{ uri: imageUrl }}
+                                    resizeMode="cover"
+                                    accessibilityLabel="Chatbild"
+                                    onLoadStart={() =>
+                                      setLoadingImageIds((previous) =>
+                                        previous.includes(message.id)
+                                          ? previous
+                                          : [...previous, message.id],
+                                      )
+                                    }
+                                    onLoadEnd={() =>
+                                      setLoadingImageIds((previous) =>
+                                        previous.filter((id) => id !== message.id),
+                                      )
+                                    }
+                                    onError={() => {
+                                      setLoadingImageIds((previous) =>
+                                        previous.filter((id) => id !== message.id),
+                                      );
+                                      setMessageImageErrors((previous) => ({
+                                        ...previous,
+                                        [message.id]: 'Bild konnte nicht geladen werden.',
+                                      }));
+                                    }}
+                                  />
+                                ) : null}
+                                {imageLoading || (!imageUrl && !imageError) ? (
+                                  <Text style={styles.imageLoadingText}>
+                                    Bild wird geladen …
+                                  </Text>
+                                ) : null}
+                                {imageError && (
+                                  <View style={styles.imageErrorBox}>
+                                    <Text style={styles.imageErrorText}>
+                                      Bild konnte nicht geladen werden.
+                                    </Text>
+                                    <TouchableOpacity
+                                      onPress={() => void retryMessageImage(message)}
+                                      disabled={imageLoading}
+                                    >
+                                      <Text style={styles.imageRetryText}>
+                                        Erneut laden
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                            {!(message.image_path && message.body === 'Bild') && (
+                              <Text style={styles.messageText}>{message.body}</Text>
+                            )}
+                            <View style={styles.reactionRow}>
+                              {REACTION_OPTIONS.map((emoji) => {
+                                const count = reactionsForMessage.filter(
+                                  (reaction) => reaction.emoji === emoji,
+                                ).length;
+                                const reacted = reactionsForMessage.some(
+                                  (reaction) =>
+                                    reaction.user_id === session.user.id &&
+                                    reaction.emoji === emoji,
+                                );
+                                return (
+                                  <TouchableOpacity
+                                    key={emoji}
+                                    style={[
+                                      styles.reactionChip,
+                                      reacted && styles.reactionChipActive,
+                                      pendingReactionKeys.includes(
+                                        `${message.id}:${session.user.id}`,
+                                      ) && styles.reactionChipPending,
+                                    ]}
+                                    accessibilityRole="button"
+                                    accessibilityState={{
+                                      selected: reacted,
+                                      disabled: pendingReactionKeys.includes(
+                                        `${message.id}:${session.user.id}`,
+                                      ),
+                                    }}
+                                    disabled={pendingReactionKeys.includes(
+                                      `${message.id}:${session.user.id}`,
+                                    )}
+                                    onPress={() =>
+                                      void toggleReaction(message.id, emoji)
+                                    }
+                                  >
+                                    <Text style={styles.reactionText}>
+                                      {emoji}{count > 0 ? ` ${count}` : ''}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                            {own && (
+                              <Text style={styles.readReceipt}>{readReceipt}</Text>
+                            )}
+                            {!own && selectedProfile && (
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setReportedMessageId(message.id);
+                                  setStatus('Meldegrund eingeben und anschließend „Melden“ wählen.');
+                                }}
+                              >
+                                <Text style={styles.messageReport}>Nachricht melden</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </ScrollView>
+                    <View style={styles.composer}>
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={[
+                            styles.imageButton,
+                            (isBlocked || uploadingImage || sendingMessage) &&
+                              styles.disabled,
+                          ]}
+                          onPress={chooseChatImage}
+                          disabled={isBlocked || uploadingImage || sendingMessage}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            uploadingImage ? 'Bild wird hochgeladen' : 'Bild auswählen'
+                          }
+                        >
+                          <Text style={styles.imageButtonText}>
+                            {uploadingImage ? 'Lädt …' : 'Bild'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      <TextInput
+                        style={styles.messageInput}
+                        value={messageDraft}
+                        onChangeText={setMessageDraft}
+                        placeholder="Nachricht..."
+                        placeholderTextColor="#71717A"
+                        maxLength={1000}
+                        editable={!isBlocked && !uploadingImage && !sendingMessage}
+                      />
+                      <TouchableOpacity
+                        style={[
+                          styles.send,
+                          (isBlocked || uploadingImage || sendingMessage) &&
+                            styles.disabled,
+                        ]}
+                        onPress={() => void sendMessage()}
+                        disabled={
+                          isBlocked ||
+                          uploadingImage ||
+                          sendingMessage ||
+                          (!selectedProfile && !selectedGroup) ||
+                          !messageDraft.trim()
+                        }
+                      >
+                        <Text style={styles.primaryText}>
+                          {sendingMessage ? 'Sendet …' : 'Senden'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.emptyChat}>
+                    <Text style={styles.emptyText}>Nutzer auswählen</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+          {status !== '' && <Text style={styles.status}>{status}</Text>}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Platform.OS === 'web' ? 24 : 10,
+  },
+  modal: {
+    width: '100%',
+    maxWidth: 760,
+    height: Platform.OS === 'web' ? '82%' : '92%',
+    maxHeight: 760,
+    backgroundColor: '#121215',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  title: { color: '#FFF', fontSize: 20, fontWeight: '900' },
+  close: { color: '#FB7185', fontSize: 12, fontWeight: '800' },
+  auth: { gap: 8, padding: 4 },
+  sectionTitle: { color: '#FFF', fontSize: 15, fontWeight: '900' },
+  input: {
+    backgroundColor: '#09090B',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#FFF',
+  },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  primary: {
+    backgroundColor: '#E11D48',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  primaryText: { color: '#FFF', fontSize: 12, fontWeight: '900' },
+  secondary: {
+    backgroundColor: '#27272A',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  secondaryText: { color: '#E4E4E7', fontSize: 12, fontWeight: '800' },
+  chatLayout: { flex: 1, flexDirection: 'row', gap: 10 },
+  profileList: {
+    width: Platform.OS === 'web' ? 245 : 155,
+    backgroundColor: '#09090B',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 8,
+  },
+  userHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 8,
+  },
+  tabButton: {
+    flex: 1,
+    backgroundColor: '#18181B',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 3,
+    alignItems: 'center',
+  },
+  tabButtonActive: {
+    backgroundColor: '#E11D48',
+  },
+  tabText: {
+    color: '#A1A1AA',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  tabTextActive: {
+    color: '#FFF',
+  },
+  blockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    backgroundColor: '#141418',
+    borderRadius: 8,
+    padding: 7,
+    marginBottom: 6,
+  },
+  blockedInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  unblockButton: {
+    backgroundColor: '#27272A',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+  },
+  unblockText: {
+    color: '#F4F4F5',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  emptyBlockedText: {
+    color: '#71717A',
+    fontSize: 11,
+    paddingVertical: 8,
+  },
+  privacyPane: {
+    gap: 8,
+    paddingTop: 2,
+  },
+  privacyCard: {
+    backgroundColor: '#141418',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+  },
+  privacyTitle: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  privacyDesc: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  exportButton: {
+    backgroundColor: '#1E293B',
+    borderColor: '#334155',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  exportButtonText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  deleteButton: {
+    backgroundColor: '#2A1215',
+    borderColor: '#7F1D1D',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  deleteButtonText: {
+    color: '#FCA5A5',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  confirmBox: {
+    backgroundColor: '#1C1012',
+    borderColor: '#991B1B',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    gap: 6,
+  },
+  confirmText: {
+    color: '#FECACA',
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  confirmYes: {
+    flex: 1,
+    backgroundColor: '#DC2626',
+    borderRadius: 6,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  confirmYesText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  confirmNo: {
+    flex: 1,
+    backgroundColor: '#27272A',
+    borderRadius: 6,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  confirmNoText: {
+    color: '#E4E4E7',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  logout: { color: '#FB7185', fontSize: 11, fontWeight: '800' },
+  profileRow: { borderRadius: 8, padding: 8, marginBottom: 5 },
+  profileActive: { backgroundColor: '#27272A' },
+  profileName: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  profileHandle: { color: '#A1A1AA', fontSize: 11, marginTop: 2 },
+  conversationPreview: {
+    color: '#71717A',
+    fontSize: 10,
+    marginTop: 4,
+  },
+  newGroupButton: {
+    backgroundColor: '#2A121B',
+    borderColor: '#6B1730',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  newGroupText: { color: '#FDA4AF', fontSize: 11, fontWeight: '900' },
+  groupCreator: {
+    backgroundColor: '#141418',
+    borderColor: '#33333D',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 8,
+    gap: 6,
+    marginBottom: 8,
+  },
+  groupNameInput: {
+    backgroundColor: '#09090B',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 7,
+    color: '#FFF',
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    fontSize: 11,
+  },
+  groupPickerLabel: { color: '#A1A1AA', fontSize: 10, fontWeight: '800' },
+  groupMemberOption: {
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+  },
+  groupMemberSelected: { backgroundColor: '#3B1723' },
+  groupMemberOptionText: { color: '#E4E4E7', fontSize: 11 },
+  chatPane: { flex: 1, minWidth: 0 },
+  chatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  chatActions: { flexDirection: 'row', gap: 6 },
+  retentionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  retentionLabel: {
+    color: '#A1A1AA',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  retentionChip: {
+    backgroundColor: '#18181B',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  retentionChipActive: {
+    backgroundColor: '#E11D48',
+    borderColor: '#E11D48',
+  },
+  retentionText: {
+    color: '#A1A1AA',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  retentionTextActive: {
+    color: '#FFF',
+  },
+  reportButton: {
+    backgroundColor: '#3F3F46',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  reportText: { color: '#FDE68A', fontSize: 11, fontWeight: '800' },
+  reportInput: {
+    backgroundColor: '#09090B',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: '#FFF',
+    marginBottom: 8,
+  },
+  messageList: { flex: 1, backgroundColor: '#09090B', borderRadius: 10 },
+  messageContent: { padding: 10, gap: 7 },
+  message: {
+    maxWidth: '78%',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  own: { alignSelf: 'flex-end', backgroundColor: '#E11D48' },
+  other: { alignSelf: 'flex-start', backgroundColor: '#27272A' },
+  messageText: { color: '#FFF', fontSize: 13 },
+  messageSender: {
+    color: '#FDA4AF',
+    fontSize: 10,
+    fontWeight: '800',
+    marginBottom: 3,
+  },
+  reactionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 6,
+  },
+  reactionChip: {
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  reactionChipActive: { borderColor: '#FDA4AF', backgroundColor: '#54182A' },
+  reactionChipPending: { opacity: 0.6 },
+  reactionText: { color: '#FFF', fontSize: 10 },
+  messageImageWrap: {
+    width: 200,
+    maxWidth: '100%',
+    marginBottom: 4,
+  },
+  messageImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 8,
+    backgroundColor: '#18181B',
+  },
+  imageLoadingText: {
+    color: '#D4D4D8',
+    fontSize: 10,
+    paddingVertical: 5,
+  },
+  imageErrorBox: {
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    borderRadius: 7,
+    padding: 7,
+    gap: 4,
+  },
+  imageErrorText: { color: '#FECACA', fontSize: 10 },
+  imageRetryText: { color: '#FDA4AF', fontSize: 10, fontWeight: '800' },
+  readReceipt: {
+    color: '#FBCFE8',
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  messageReport: {
+    color: '#FDE68A',
+    fontSize: 9,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  composer: { flexDirection: 'row', gap: 7, marginTop: 8 },
+  imageButton: {
+    backgroundColor: '#27272A',
+    borderRadius: 999,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+  imageButtonText: { color: '#E4E4E7', fontSize: 11, fontWeight: '800' },
+  messageInput: {
+    flex: 1,
+    backgroundColor: '#09090B',
+    borderColor: '#27272A',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    color: '#FFF',
+  },
+  send: {
+    backgroundColor: '#E11D48',
+    borderRadius: 999,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  disabled: { opacity: 0.45 },
+  emptyChat: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { color: '#71717A', fontSize: 13 },
+  status: { color: '#FCA5A5', fontSize: 11, marginTop: 8 },
+});
