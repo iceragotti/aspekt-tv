@@ -107,10 +107,13 @@ interface AppState {
   shortsIndex: number;
   pulseFeedFilter?: PulseFeedFilter;
   supportPaymentUrl?: string;
+  supportPaymentLinkDisabled?: boolean;
   supporterPreviewEnabled?: boolean;
 }
 
 const TODAY = '23. November 2026';
+const DEFAULT_SUPPORT_PAYMENT_URL =
+  'https://paypal.me/ICERAGOTTI?country.x=AT&locale.x=de_DE';
 const SUPPORT_PAYMENT_URL_PATTERN =
   /^https:\/\/[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::\d{1,5})?(?:[/?#][^\s]*)?$/i;
 
@@ -247,6 +250,9 @@ const nextReactionState = (
 
 export default function App() {
   const [initial] = useState(loadState);
+  const initialSupportPaymentUrl = initial.supportPaymentLinkDisabled
+    ? ''
+    : initial.supportPaymentUrl || DEFAULT_SUPPORT_PAYMENT_URL;
   const [tab, setTab] = useState<SupportTab>('News');
   const [articles, setArticles] = useState<Article[]>(initial.articles ?? INITIAL_ARTICLES);
   const [posts, setPosts] = useState<SocialPost[]>(initial.posts ?? INITIAL_POSTS);
@@ -316,10 +322,13 @@ export default function App() {
   );
   const [shortsIndex, setShortsIndex] = useState(initial.shortsIndex ?? 0);
   const [supportPaymentUrl, setSupportPaymentUrl] = useState(
-    initial.supportPaymentUrl ?? '',
+    initialSupportPaymentUrl,
   );
   const [supportUrlDraft, setSupportUrlDraft] = useState(
-    initial.supportPaymentUrl ?? '',
+    initialSupportPaymentUrl,
+  );
+  const [supportPaymentLinkDisabled, setSupportPaymentLinkDisabled] = useState(
+    initial.supportPaymentLinkDisabled ?? false,
   );
   const [supporterPreviewEnabled, setSupporterPreviewEnabled] = useState(
     initial.supporterPreviewEnabled ?? false,
@@ -347,11 +356,11 @@ export default function App() {
         crisisChecklist: checklist, history: cmsHistory,
         blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
         pulseFeedFilter,
-        supportPaymentUrl, supporterPreviewEnabled,
+        supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled,
         dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
       }));
     } catch {}
-  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, supportPaymentUrl, supporterPreviewEnabled, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
+  }, [articles, posts, stories, ageMode, breakingApproved, checklist, cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex, pulseFeedFilter, supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled, dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -746,6 +755,7 @@ export default function App() {
     if (!normalizedUrl) {
       setSupportPaymentUrl('');
       setSupportUrlDraft('');
+      setSupportPaymentLinkDisabled(true);
       setSupportNotice({
         message: 'Der Zahlungs-Link wurde entfernt. Unterstützung ist derzeit deaktiviert.',
         tone: 'info',
@@ -764,6 +774,7 @@ export default function App() {
 
     setSupportPaymentUrl(normalizedUrl);
     setSupportUrlDraft(normalizedUrl);
+    setSupportPaymentLinkDisabled(false);
     setSupportNotice({
       message: 'Zahlungs-Link gespeichert. Die Unterstützung wird extern abgewickelt.',
       tone: 'success',
@@ -818,7 +829,7 @@ export default function App() {
       articles, posts, stories, ageMode, breakingApproved, crisisChecklist: checklist,
       history: cmsHistory, blockedHandles, hiddenPostIds, followed, shortsFeed, shortsIndex,
       pulseFeedFilter,
-      supportPaymentUrl, supporterPreviewEnabled,
+      supportPaymentUrl, supportPaymentLinkDisabled, supporterPreviewEnabled,
       dailyLimitMinutes, dailyUsageSeconds, dailyUsageDate,
     });
     if (Platform.OS === 'web') {
@@ -856,8 +867,9 @@ export default function App() {
     setCmsHistory([]);
     setFollowed([]);
     setPulseFeedFilter('Alle');
-    setSupportPaymentUrl('');
-    setSupportUrlDraft('');
+    setSupportPaymentUrl(DEFAULT_SUPPORT_PAYMENT_URL);
+    setSupportUrlDraft(DEFAULT_SUPPORT_PAYMENT_URL);
+    setSupportPaymentLinkDisabled(false);
     setSupporterPreviewEnabled(false);
     setSupportNotice(null);
     setShortsFeed('Für Dich');
@@ -1861,7 +1873,7 @@ export default function App() {
                   accessibilityLabel="Externer HTTPS-Zahlungs-Link"
                 />
                 <Text style={styles.supportHint}>
-                  Der Link bleibt leer und der Zahlungsbutton deaktiviert, bis du einen gültigen HTTPS-Link speicherst. Die Einstellung wird lokal in diesem Browser gespeichert.
+                  Der PayPal-Link ist voreingestellt. Du kannst ihn hier durch einen anderen gültigen HTTPS-Zahlungs-Link ersetzen oder entfernen. Die Einstellung wird lokal in diesem Browser gespeichert.
                 </Text>
                 <View style={styles.supportActions}>
                   <TouchableOpacity
