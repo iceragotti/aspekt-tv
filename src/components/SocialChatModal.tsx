@@ -122,6 +122,8 @@ export default function SocialChatModal({
   const [status, setStatus] = useState('');
   const [reportedUserId, setReportedUserId] = useState<string | null>(null);
   const [reportedMessageId, setReportedMessageId] = useState<string | null>(null);
+  const [reportedUserIds, setReportedUserIds] = useState<string[]>([]);
+  const [reportedMessageIds, setReportedMessageIds] = useState<string[]>([]);
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [blockingUserId, setBlockingUserId] = useState<string | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
@@ -500,6 +502,8 @@ export default function SocialChatModal({
         setSelectedGroup(null);
         setReportedUserId(null);
         setReportedMessageId(null);
+        setReportedUserIds([]);
+        setReportedMessageIds([]);
         setReportReason('');
         setReportSubmitting(false);
         setGroups([]);
@@ -1326,6 +1330,14 @@ export default function SocialChatModal({
       if (error) throw error;
 
       setStatus('Meldung wurde abgesendet. Danke für deinen Hinweis.');
+      setReportedUserIds((previous) =>
+        previous.includes(targetUserId) ? previous : [...previous, targetUserId],
+      );
+      if (messageId) {
+        setReportedMessageIds((previous) =>
+          previous.includes(messageId) ? previous : [...previous, messageId],
+        );
+      }
       setReportReason('');
       setReportedUserId(null);
       setReportedMessageId(null);
@@ -1684,6 +1696,11 @@ export default function SocialChatModal({
                           {profile.role !== 'user' ? ' ✓' : ''}
                         </Text>
                         <Text style={styles.profileHandle}>@{profile.handle}</Text>
+                        {reportedUserIds.includes(profile.id) && (
+                          <Text style={styles.reportedSessionBadge}>
+                            In dieser Sitzung gemeldet
+                          </Text>
+                        )}
                         <Text style={styles.conversationPreview} numberOfLines={1}>
                           {lastMessages[`user:${profile.id}`] ?? 'Nachricht schreiben'}
                         </Text>
@@ -1694,6 +1711,23 @@ export default function SocialChatModal({
 
                 {userTab === 'blocked' && (
                   <ScrollView>
+                    {(status.startsWith('Blockierung') || status.includes('blockiert')) && (
+                      <Text style={[
+                        styles.blockedStatus,
+                        status.startsWith('Blockierung aufgehoben') ||
+                        status.startsWith('Nutzer wurde blockiert')
+                          ? styles.blockedStatusSuccess
+                          : status.includes('konnte nicht')
+                            ? styles.blockedStatusError
+                            : styles.blockedStatusInfo,
+                      ]}>
+                        {status}
+                      </Text>
+                    )}
+                    <View style={styles.blockedListHeader}>
+                      <Text style={styles.blockedListTitle}>Blockierte Nutzer</Text>
+                      <Text style={styles.blockedCount}>{blockedProfiles.length}</Text>
+                    </View>
                     {blockedProfiles.length === 0 ? (
                       <Text style={styles.emptyBlockedText}>
                         Keine blockierten Nutzer.
@@ -1708,6 +1742,11 @@ export default function SocialChatModal({
                             <Text style={styles.profileHandle} numberOfLines={1}>
                               @{profile.handle}
                             </Text>
+                            {reportedUserIds.includes(profile.id) && (
+                              <Text style={styles.reportedSessionBadge}>
+                                In dieser Sitzung gemeldet
+                              </Text>
+                            )}
                           </View>
                           <TouchableOpacity
                             style={styles.unblockButton}
@@ -1794,6 +1833,12 @@ export default function SocialChatModal({
                             ? 'Gruppenchat'
                             : `@${selectedProfile?.handle ?? ''}`}
                         </Text>
+                        {selectedProfile &&
+                          reportedUserIds.includes(selectedProfile.id) && (
+                            <Text style={styles.reportedSessionBadge}>
+                              Nutzer in dieser Sitzung gemeldet
+                            </Text>
+                          )}
                       </View>
                       {(selectedProfile || reportedMessageId) && (
                         <View style={styles.chatActions}>
@@ -2044,24 +2089,31 @@ export default function SocialChatModal({
                               <Text style={styles.readReceipt}>{readReceipt}</Text>
                             )}
                             {!own && (
-                              <TouchableOpacity
-                                disabled={reportSubmitting}
-                                onPress={() => {
-                                  setReportedUserId(message.sender_id);
-                                  setReportedMessageId(message.id);
-                                  if (reportReason.trim().length >= 3) {
-                                    void reportUser(
-                                      message.sender_id,
-                                      message.id,
-                                      reportReason,
-                                    );
-                                  } else {
-                                    setStatus('Meldegrund eingeben und anschließend oben auf „Melden“ tippen.');
-                                  }
-                                }}
-                              >
-                                <Text style={styles.messageReport}>Nachricht melden</Text>
-                              </TouchableOpacity>
+                              <View style={styles.messageReportRow}>
+                                <TouchableOpacity
+                                  disabled={reportSubmitting}
+                                  onPress={() => {
+                                    setReportedUserId(message.sender_id);
+                                    setReportedMessageId(message.id);
+                                    if (reportReason.trim().length >= 3) {
+                                      void reportUser(
+                                        message.sender_id,
+                                        message.id,
+                                        reportReason,
+                                      );
+                                    } else {
+                                      setStatus('Meldegrund eingeben und anschließend oben auf „Melden“ tippen.');
+                                    }
+                                  }}
+                                >
+                                  <Text style={styles.messageReport}>Nachricht melden</Text>
+                                </TouchableOpacity>
+                                {reportedMessageIds.includes(message.id) && (
+                                  <Text style={styles.reportedSessionBadge}>
+                                    In dieser Sitzung gemeldet
+                                  </Text>
+                                )}
+                              </View>
                             )}
                             <View style={styles.messageActions}>
                               <TouchableOpacity
@@ -2306,6 +2358,33 @@ const styles = StyleSheet.create({
   blockedInfo: {
     flex: 1,
     minWidth: 0,
+  },
+  blockedStatus: {
+    borderRadius: 7,
+    fontSize: 10,
+    lineHeight: 15,
+    marginBottom: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+  blockedStatusSuccess: { backgroundColor: '#052E16', color: '#86EFAC' },
+  blockedStatusError: { backgroundColor: '#450A0A', color: '#FDA4AF' },
+  blockedStatusInfo: { backgroundColor: '#172554', color: '#BFDBFE' },
+  blockedListHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  blockedListTitle: { color: '#F4F4F5', fontSize: 12, fontWeight: '900' },
+  blockedCount: { color: '#A1A1AA', fontSize: 10, fontWeight: '800' },
+  reportedSessionBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#422006',
+    borderColor: '#A16207',
+    borderRadius: 999,
+    borderWidth: 1,
+    color: '#FDE68A',
+    fontSize: 8,
+    fontWeight: '800',
+    marginTop: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
   unblockButton: {
     backgroundColor: '#27272A',
@@ -2610,6 +2689,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 5,
   },
+  messageReportRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   composerArea: { gap: 6, marginTop: 8 },
   replyComposer: {
     flexDirection: 'row',
