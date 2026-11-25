@@ -109,7 +109,8 @@ export default function SocialChatModal({
   const [groups, setGroups] = useState<ChatGroup[]>([]);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const messageScrollRef = useRef<ScrollView | null>(null);
+  const messageScrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null);
+  const messageInputRef = useRef<React.ComponentRef<typeof TextInput> | null>(null);
   const shouldAutoScrollToLatestRef = useRef(true);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
@@ -121,6 +122,117 @@ export default function SocialChatModal({
   const [confirmDeleteMessageId, setConfirmDeleteMessageId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [messageImageUrls, setMessageImageUrls] = useState<Record<string, string>>({});
+  const [recordingAudio, setRecordingAudio] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [pendingAudio, setPendingAudio] = useState<{
+    blob: Blob;
+    previewUrl: string;
+    durationSec: number;
+    mimeType: string;
+  } | null>(null);
+  const pendingAudioRef = useRef<{
+    blob: Blob;
+    previewUrl: string;
+    durationSec: number;
+    mimeType: string;
+  } | null>(null);
+  pendingAudioRef.current = pendingAudio;
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingSecRef = useRef(0);
+
+  const clearPendingAudio = () => {
+    setPendingAudio((cur) => {
+      if (cur?.previewUrl && typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+        URL.revokeObjectURL(cur.previewUrl);
+      }
+      return null;
+    });
+  };
+
+  const stopAudioStreamAndTimer = () => {
+    if (audioTimerRef.current) {
+      clearInterval(audioTimerRef.current);
+      audioTimerRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
+    }
+  };
+
+  const toggleVoiceRecording = async () => {
+    if (Platform.OS !== "web" || typeof navigator === "undefined" || typeof MediaRecorder === "undefined") {
+      setStatus("Sprachnachrichten sind aktuell im Web-Browser verfügbar.");
+      return;
+    }
+    if (sendingMessageRef.current || uploadingImageRef.current) return;
+
+    if (recordingAudio && mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setRecordingAudio(false);
+      stopAudioStreamAndTimer();
+      return;
+    }
+
+    try {
+      clearPendingAudio();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recordingSecRef.current = 0;
+      setRecordingSeconds(0);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const finalMime = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: finalMime });
+        audioChunksRef.current = [];
+        const durationSec = Math.max(1, recordingSecRef.current);
+        stopAudioStreamAndTimer();
+        setRecordingAudio(false);
+        if (blob.size === 0 || typeof URL === "undefined") return;
+        const previewUrl = URL.createObjectURL(blob);
+        setPendingAudio({ blob, previewUrl, durationSec, mimeType: finalMime });
+        setStatus(`Sprachnachricht (${durationSec}s) bereit zum Anhören oder Senden.`);
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecordingAudio(true);
+      setStatus("Aufnahme läuft … erneut auf Sprache tippen zum Beenden.");
+      audioTimerRef.current = setInterval(() => {
+        recordingSecRef.current += 1;
+        setRecordingSeconds(recordingSecRef.current);
+      }, 1000);
+    } catch {
+      stopAudioStreamAndTimer();
+      setRecordingAudio(false);
+      setStatus("Mikrofon-Zugriff wurde blockiert oder ist nicht verfügbar.");
+    }
+  };
+  const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string; name: string } | null>(null);
+  const pendingImageRef = useRef<{ file: File; previewUrl: string; name: string } | null>(null);
+  pendingImageRef.current = pendingImage;
+  const clearPendingImage = () => {
+    setPendingImage((cur) => {
+      if (cur?.previewUrl && typeof URL !== "undefined") URL.revokeObjectURL(cur.previewUrl);
+      return null;
+    });
+  };
   const [messageImageErrors, setMessageImageErrors] = useState<Record<string, string>>({});
   const [loadingImageIds, setLoadingImageIds] = useState<string[]>([]);
   const [messageReads, setMessageReads] = useState<MessageRead[]>([]);
@@ -598,7 +710,27 @@ export default function SocialChatModal({
     setMessageImageUrls({});
     setMessageImageErrors({});
     setLoadingImageIds([]);
+    clearPendingImage();
+    clearPendingAudio();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    stopAudioStreamAndTimer();
+    setRecordingAudio(false);
   }, [session?.user.id, selectedProfile?.id, selectedGroup?.id]);
+
+  useEffect(() => {
+    return () => {
+      const activePreviewUrl = pendingImageRef.current?.previewUrl;
+      if (
+        activePreviewUrl &&
+        typeof URL !== "undefined" &&
+        typeof URL.revokeObjectURL === "function"
+      ) {
+        URL.revokeObjectURL(activePreviewUrl);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedGroup || groups.some((group) => group.id === selectedGroup.id)) {
@@ -987,17 +1119,18 @@ export default function SocialChatModal({
       setStatus('Supabase ist nicht konfiguriert.');
       return;
     }
+    const activePendingImage = pendingImageRef.current;
     if (
       sendingMessageRef.current ||
       uploadingImageRef.current ||
       !session ||
       (!selectedProfile && !selectedGroup) ||
-      !messageDraft.trim() ||
+      (!messageDraft.trim() && !activePendingImage) ||
       (selectedProfile && blockedIds.includes(selectedProfile.id))
     ) return;
     sendingMessageRef.current = true;
     setSendingMessage(true);
-    const body = messageDraft.trim();
+    const body = activePendingImage ? (messageDraft.trim() || "Bild") : messageDraft.trim();
     const replyToMessageId = replyingTo?.id ?? null;
     const replySnapshot = replyingTo;
     const optimisticMessage: ChatMessage = {
@@ -1007,7 +1140,7 @@ export default function SocialChatModal({
       group_id: selectedGroup?.id ?? null,
       reply_to_message_id: replyToMessageId,
       body,
-      image_path: null,
+      image_path: null as string | null,
       created_at: new Date().toISOString(),
     };
     const message = {
@@ -1016,7 +1149,7 @@ export default function SocialChatModal({
       group_id: selectedGroup?.id ?? null,
       reply_to_message_id: replyToMessageId,
       body,
-      image_path: null,
+      image_path: null as string | null,
     };
     visibleMessageIdsRef.current.add(optimisticMessage.id);
     setMessages((previous) => [...previous, optimisticMessage]);
@@ -1026,39 +1159,66 @@ export default function SocialChatModal({
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     typingStopTimerRef.current = null;
     sendTypingState(false);
+    let uploadedPath: string | null = null;
+    let objectUploaded = false;
+    let messageSaved = false;
     try {
+      let messageToInsert = message;
+      if (activePendingImage) {
+        uploadingImageRef.current = true;
+        setUploadingImage(true);
+        const extMap: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+        const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        uploadedPath = `${session.user.id}/${token}.${extMap[activePendingImage.file.type] ?? "jpg"}`;
+        const { error: uploadError } = await supabase.storage.from(CHAT_IMAGES_BUCKET).upload(uploadedPath, activePendingImage.file, {
+          cacheControl: "3600", contentType: activePendingImage.file.type, upsert: false,
+        });
+        if (uploadError) throw uploadError;
+        objectUploaded = true;
+        messageToInsert = { ...message, body, image_path: uploadedPath };
+      }
       const { data, error } = await supabase
         .from('messages')
-        .insert(message)
+        .insert(messageToInsert)
         .select('id, sender_id, receiver_id, group_id, reply_to_message_id, body, image_path, created_at')
         .single();
       if (error) throw error;
+      messageSaved = true;
       const sentMessage = data as ChatMessage;
       visibleMessageIdsRef.current.delete(optimisticMessage.id);
       visibleMessageIdsRef.current.add(sentMessage.id);
-      setMessages((previous) => {
-        const withoutOptimistic = previous.filter(
-          (item) => item.id !== optimisticMessage.id,
-        );
-        return withoutOptimistic.some((item) => item.id === sentMessage.id)
-          ? withoutOptimistic
-          : [...withoutOptimistic, sentMessage];
+      setMessages((prev) => {
+        const rest = prev.filter((item) => item.id !== optimisticMessage.id);
+        return rest.some((item) => item.id === sentMessage.id) ? rest : [...rest, sentMessage];
       });
       updateChatPreview(sentMessage);
-      setStatus('Nachricht gesendet.');
+      setMessageDraft('');
+      setReplyingTo(null);
+      if (activePendingImage && uploadedPath) {
+        clearPendingImage();
+        const { data: signedImage, error: signedImageError } = await supabase.storage
+          .from(CHAT_IMAGES_BUCKET)
+          .createSignedUrl(uploadedPath, CHAT_IMAGE_URL_TTL_SECONDS);
+        if (signedImageError) {
+          setMessageImageErrors((prev) => ({ ...prev, [sentMessage.id]: signedImageError.message }));
+        } else if (signedImage?.signedUrl) {
+          setMessageImageUrls((prev) => ({ ...prev, [sentMessage.id]: signedImage.signedUrl }));
+        }
+      }
+      setStatus(activePendingImage ? 'Bild gesendet.' : 'Nachricht gesendet.');
     } catch (error) {
       visibleMessageIdsRef.current.delete(optimisticMessage.id);
-      setMessages((previous) =>
-        previous.filter((item) => item.id !== optimisticMessage.id),
-      );
+      setMessages((previous) => previous.filter((item) => item.id !== optimisticMessage.id));
       setMessageDraft((current) => current || body);
-      if (replySnapshot) {
-        setReplyingTo((current) => current ?? replySnapshot);
+      if (replySnapshot) setReplyingTo((current) => current ?? replySnapshot);
+      if (uploadedPath && objectUploaded && !messageSaved) {
+        await supabase.storage.from(CHAT_IMAGES_BUCKET).remove([uploadedPath]);
       }
-      const detail =
-        error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
+      const detail = error instanceof Error ? error.message : 'Unbekannter Datenbankfehler.';
       setStatus(`Nachricht konnte nicht gesendet werden: ${detail}`);
     } finally {
+      uploadingImageRef.current = false;
+      setUploadingImage(false);
       sendingMessageRef.current = false;
       setSendingMessage(false);
     }
@@ -1178,7 +1338,21 @@ export default function SocialChatModal({
     input.onchange = () => {
       const file = input.files?.[0];
       input.value = '';
-      if (file) void uploadChatImage(file);
+      if (!file) return;
+      if (!CHAT_IMAGE_MIME_TYPES.includes(file.type)) {
+        setStatus('Bitte wähle ein JPEG-, PNG-, WebP- oder GIF-Bild aus.');
+        return;
+      }
+      if (file.size === 0 || file.size > CHAT_IMAGE_MAX_BYTES) {
+        setStatus('Das Bild muss größer als 0 Byte und höchstens 8 MB groß sein.');
+        return;
+      }
+      if (typeof URL === 'undefined') {
+        void uploadChatImage(file);
+        return;
+      }
+      clearPendingImage();
+      setPendingImage({ file, previewUrl: URL.createObjectURL(file), name: file.name || 'Bild' });
     };
     input.click();
   };
@@ -1269,7 +1443,9 @@ export default function SocialChatModal({
     );
   };
 
-  const deleteOwnMessage = async (message: ChatMessage) => {
+  const CHAT_AUDIO_BUCKET_LOCAL = 'chat-audio';
+const AUDIO_PATH_REGEX_LOCAL = /\.(webm|ogg|mp4|m4a|wav|aac)(\?|$)/i;
+const deleteOwnMessage = async (message: ChatMessage) => {
     if (!isSupabaseConfigured) {
       setStatus('Supabase ist nicht konfiguriert.');
       return;
@@ -1290,12 +1466,33 @@ export default function SocialChatModal({
       }
 
       removeMessageFromLocalState(message.id);
+      setMessageImageUrls((prev) => {
+        if (!(message.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[message.id];
+        return next;
+      });
+      setMessageImageErrors((prev) => {
+        if (!(message.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[message.id];
+        return next;
+      });
+      setLoadingImageIds((prev) => prev.filter((id) => id !== message.id));
       if (message.image_path) {
-        const { error: imageDeleteError } = await supabase.storage
-          .from(CHAT_IMAGES_BUCKET)
+        const isAudio = AUDIO_PATH_REGEX_LOCAL.test(message.image_path);
+        const primaryBucket = isAudio ? CHAT_AUDIO_BUCKET_LOCAL : CHAT_IMAGES_BUCKET;
+        let { error: mediaDeleteError } = await supabase.storage
+          .from(primaryBucket)
           .remove([message.image_path]);
-        if (imageDeleteError) {
-          setStatus(`Nachricht gelöscht, Chatbild konnte aber nicht gelöscht werden: ${imageDeleteError.message}`);
+        if (mediaDeleteError && isAudio) {
+          const fallbackRes = await supabase.storage
+            .from(CHAT_IMAGES_BUCKET)
+            .remove([message.image_path]);
+          mediaDeleteError = fallbackRes.error;
+        }
+        if (mediaDeleteError) {
+          setStatus(`Nachricht gelöscht, Mediendatei konnte aber nicht gelöscht werden: ${mediaDeleteError.message}`);
           return;
         }
       }
@@ -1861,10 +2058,19 @@ export default function SocialChatModal({
                           setReportReason('');
                         }}
                       >
-                        <Text style={styles.profileName}>◉ {group.name}</Text>
-                        <Text style={styles.conversationPreview} numberOfLines={1}>
-                          {lastMessages[`group:${group.id}`] ?? 'Noch keine Nachrichten'}
-                        </Text>
+                        <View style={styles.profileRowInner}>
+                          <View style={styles.profileAvatarBadge}>
+                            <Text style={styles.profileAvatarText}>
+                              {((group.name || "G").trim().charAt(0) || "G").toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={styles.profileMetaCol}>
+                            <Text style={styles.profileName} numberOfLines={1}>{group.name}</Text>
+                            <Text style={styles.conversationPreview} numberOfLines={1}>
+                              {lastMessages[`group:${group.id}`] ?? 'Noch keine Nachrichten'}
+                            </Text>
+                          </View>
+                        </View>
                       </TouchableOpacity>
                     ))}
                     {profiles.map((profile) => (
@@ -1882,19 +2088,28 @@ export default function SocialChatModal({
                           setReportReason('');
                         }}
                       >
-                        <Text style={styles.profileName}>
-                          {profile.display_name}
-                          {profile.role !== 'user' ? ' ✓' : ''}
-                        </Text>
-                        <Text style={styles.profileHandle}>@{profile.handle}</Text>
-                        {reportedUserIds.includes(profile.id) && (
-                          <Text style={styles.reportedSessionBadge}>
-                            In dieser Sitzung gemeldet
-                          </Text>
-                        )}
-                        <Text style={styles.conversationPreview} numberOfLines={1}>
-                          {lastMessages[`user:${profile.id}`] ?? 'Nachricht schreiben'}
-                        </Text>
+                        <View style={styles.profileRowInner}>
+                          <View style={styles.profileAvatarBadge}>
+                            <Text style={styles.profileAvatarText}>
+                              {((profile.display_name || profile.handle || "?").trim().charAt(0) || "?").toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={styles.profileMetaCol}>
+                            <Text style={styles.profileName} numberOfLines={1}>
+                              {profile.display_name}
+                              {profile.role !== 'user' ? ' ✓' : ''}
+                            </Text>
+                            <Text style={styles.profileHandle} numberOfLines={1}>@{profile.handle}</Text>
+                            {reportedUserIds.includes(profile.id) && (
+                              <Text style={styles.reportedSessionBadge}>
+                                In dieser Sitzung gemeldet
+                              </Text>
+                            )}
+                            <Text style={styles.conversationPreview} numberOfLines={1}>
+                              {lastMessages[`user:${profile.id}`] ?? 'Nachricht schreiben'}
+                            </Text>
+                          </View>
+                        </View>
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
@@ -2351,6 +2566,14 @@ export default function SocialChatModal({
                                 <Text style={styles.messageTimestamp}>
                                   {formatMessageTime(message.created_at)}
                                 </Text>
+                                {retention !== 'off' && (
+                                  <View
+                                    style={styles.retentionBadge}
+                                    accessibilityLabel={`Ablaufzeit ${retention}`}
+                                  >
+                                    <Text style={styles.retentionBadgeText}>{retention}</Text>
+                                  </View>
+                                )}
                                 {own && (
                                   <Text style={styles.readReceipt}>
                                     {isPending ? 'Wird gesendet…' : readReceipt}
@@ -2391,6 +2614,7 @@ export default function SocialChatModal({
                                 onPress={() => {
                                   setReplyingTo(message);
                                   setStatus('');
+                                  requestAnimationFrame(() => messageInputRef.current?.focus());
                                 }}
                               >
                                 <Text style={[
@@ -2489,7 +2713,61 @@ export default function SocialChatModal({
                           </TouchableOpacity>
                         </View>
                       )}
+                      {pendingImage && (
+                        <View style={styles.pendingImageBar}>
+                          <Image source={{ uri: pendingImage.previewUrl }} style={styles.pendingImageThumb} resizeMode="cover" />
+                          <Text style={styles.pendingImageTitle} numberOfLines={1}>{pendingImage.name}</Text>
+                          <TouchableOpacity onPress={clearPendingImage} accessibilityRole="button" accessibilityLabel="Ausgewähltes Bild entfernen">
+                            <Text style={styles.messageAction}>Entfernen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {pendingAudio && (
+                        <View style={styles.pendingImageBar}>
+                          <Text style={styles.pendingImageTitle} numberOfLines={1}>
+                            Sprachnachricht ({pendingAudio.durationSec}s)
+                          </Text>
+                          {Platform.OS === 'web' && (
+                            <audio src={pendingAudio.previewUrl} controls style={{ maxWidth: 180, height: 30 }} />
+                          )}
+                          <TouchableOpacity
+                            onPress={() => {
+                              clearPendingAudio();
+                              if (recordingAudio) {
+                                void toggleVoiceRecording().then(() => void toggleVoiceRecording());
+                              } else {
+                                void toggleVoiceRecording();
+                              }
+                            }}
+                            disabled={isBlocked || uploadingImage || sendingMessage}
+                            accessibilityRole="button"
+                            accessibilityLabel="Sprachnachricht neu aufnehmen"
+                          >
+                            <Text style={styles.messageAction}>Neu aufnehmen</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={clearPendingAudio} accessibilityRole="button" accessibilityLabel="Sprachnachricht verwerfen">
+                            <Text style={styles.messageAction}>Verwerfen</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                       <View style={styles.composer}>
+                        {Platform.OS === 'web' && (
+                          <TouchableOpacity
+                            style={[
+                              styles.imageButton,
+                              recordingAudio && { borderColor: '#F43F5E', backgroundColor: 'rgba(244, 63, 94, 0.22)' },
+                              (isBlocked || uploadingImage || sendingMessage) && styles.disabled,
+                            ]}
+                            onPress={() => void toggleVoiceRecording()}
+                            disabled={isBlocked || uploadingImage || sendingMessage}
+                            accessibilityRole="button"
+                            accessibilityLabel={recordingAudio ? 'Aufnahme beenden' : 'Sprachnachricht aufnehmen'}
+                          >
+                            <Text style={styles.imageButtonText}>
+                              {recordingAudio ? `Stop ${recordingSeconds}s` : 'Mic'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                         {Platform.OS === 'web' && (
                           <TouchableOpacity
                             style={[
@@ -2510,9 +2788,21 @@ export default function SocialChatModal({
                           </TouchableOpacity>
                         )}
                         <TextInput
+                          ref={messageInputRef}
                           style={styles.messageInput}
                           value={messageDraft}
                           onChangeText={handleMessageDraftChange}
+                          onKeyPress={(e: any) => {
+                            if (Platform.OS === 'web') {
+                              if (e?.nativeEvent?.key === 'Enter' && !e?.nativeEvent?.shiftKey) {
+                                e?.preventDefault?.();
+                                void sendMessage();
+                              } else if (e?.nativeEvent?.key === 'Escape' && replyingTo) {
+                                e?.preventDefault?.();
+                                setReplyingTo(null);
+                              }
+                            }
+                          }}
                           placeholder="Nachricht..."
                           placeholderTextColor="#71717A"
                           maxLength={1000}
@@ -2530,7 +2820,7 @@ export default function SocialChatModal({
                             uploadingImage ||
                             sendingMessage ||
                             (!selectedProfile && !selectedGroup) ||
-                            !messageDraft.trim()
+                            (!messageDraft.trim() && !pendingImage)
                           }
                         >
                           <Text style={styles.primaryText}>
@@ -2542,7 +2832,47 @@ export default function SocialChatModal({
                   </>
                 ) : (
                   <View style={styles.emptyChat}>
-                    <Text style={styles.emptyText}>Nutzer auswählen</Text>
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIconBadge}>
+                        <Text style={styles.emptyIconText}>✉</Text>
+                      </View>
+                      <Text style={styles.emptyTitle}>Unterhaltung starten</Text>
+                      <Text style={styles.emptySubtitle}>
+                        Wähle links einen Chat aus oder starte direkt einen neuen Kontakt oder Gruppenchat.
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.emptyCtaButton}
+                        onPress={() => {
+                          setUserTab('active');
+                          setReportedUserId(null);
+                          setReportedMessageId(null);
+                          setReportReason('');
+                          if (profiles.length > 0) {
+                            setSelectedGroup(null);
+                            setSelectedProfile(profiles[0]);
+                            setGroupCreatorOpen(false);
+                          } else {
+                            setGroupCreatorOpen(true);
+                          }
+                        }}
+                      >
+                        <Text style={styles.emptyCtaText}>Neuen Chat starten</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.emptySecondaryButton}
+                        onPress={() => {
+                          setUserTab('active');
+                          setSelectedProfile(null);
+                          setSelectedGroup(null);
+                          setReportedUserId(null);
+                          setReportedMessageId(null);
+                          setReportReason('');
+                          setGroupCreatorOpen(true);
+                        }}
+                      >
+                        <Text style={styles.emptySecondaryText}>+ Gruppenchat</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
               </View>
@@ -2610,12 +2940,13 @@ const styles = StyleSheet.create({
   secondaryText: { color: '#E4E4E7', fontSize: 12, fontWeight: '800' },
   chatLayout: { flex: 1, flexDirection: 'row', gap: 10 },
   profileList: {
-    width: Platform.OS === 'web' ? 245 : 155,
-    backgroundColor: '#09090B',
-    borderColor: '#27272A',
+    width: Platform.OS === 'web' ? 255 : 160,
+    backgroundColor: 'rgba(14, 14, 18, 0.72)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderRadius: 10,
-    padding: 8,
+    borderRadius: 16,
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as any) : {}),
+    padding: 10,
   },
   userHeader: {
     flexDirection: 'row',
@@ -2796,13 +3127,29 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   logout: { color: '#FB7185', fontSize: 11, fontWeight: '800' },
-  profileRow: { borderRadius: 8, padding: 8, marginBottom: 5 },
-  profileActive: { backgroundColor: '#27272A' },
-  profileName: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  profileRow: {
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginBottom: 6,
+    backgroundColor: 'rgba(24, 24, 28, 0.52)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  profileActive: {
+    backgroundColor: 'rgba(225, 29, 72, 0.16)',
+    borderColor: 'rgba(244, 63, 94, 0.45)',
+  },
+  profileName: { color: '#F4F4F5', fontSize: 13, fontWeight: '800' },
   profileHandle: { color: '#A1A1AA', fontSize: 11, marginTop: 2 },
+  profileRowInner: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  profileAvatarBadge: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(225, 29, 72, 0.20)', borderWidth: 1, borderColor: 'rgba(253, 164, 175, 0.35)' },
+  profileAvatarText: { color: '#fda4af', fontSize: 13, fontWeight: '800' },
+  profileMetaCol: { flex: 1, minWidth: 0 },
   conversationPreview: {
-    color: '#71717A',
-    fontSize: 10,
+    color: '#9CA3AF',
+    fontSize: 11,
+    lineHeight: 15,
     marginTop: 4,
   },
   newGroupButton: {
@@ -2841,7 +3188,16 @@ const styles = StyleSheet.create({
   },
   groupMemberSelected: { backgroundColor: '#3B1723' },
   groupMemberOptionText: { color: '#E4E4E7', fontSize: 11 },
-  chatPane: { flex: 1, minWidth: 0 },
+  chatPane: {
+    flex: 1,
+    minWidth: 0,
+    borderRadius: 16,
+    padding: 10,
+    backgroundColor: 'rgba(18, 18, 22, 0.58)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as any) : {}),
+  },
   chatHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2949,16 +3305,16 @@ const styles = StyleSheet.create({
     lineHeight: aspectTheme.typography.lineBody,
   },
   replyQuote: {
-    backgroundColor: 'rgba(0,0,0,0.22)',
+    backgroundColor: 'rgba(225, 29, 72, 0.10)',
     borderLeftWidth: 2,
-    borderLeftColor: aspectTheme.colors.accentText,
+    borderLeftColor: '#fda4af',
     borderRadius: aspectTheme.radius.sm,
     paddingHorizontal: aspectTheme.spacing.sm,
     paddingVertical: aspectTheme.spacing.xs,
     marginBottom: aspectTheme.spacing.xs,
   },
   replyQuoteLabel: {
-    color: aspectTheme.colors.accentText,
+    color: '#fda4af',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.heavy,
   },
@@ -2969,7 +3325,7 @@ const styles = StyleSheet.create({
     marginTop: aspectTheme.spacing.xxs,
   },
   messageSender: {
-    color: aspectTheme.colors.accentText,
+    color: '#fda4af',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.heavy,
     marginBottom: aspectTheme.spacing.xxs,
@@ -2981,12 +3337,12 @@ const styles = StyleSheet.create({
     marginTop: aspectTheme.spacing.xs,
   },
   messageAction: {
-    color: aspectTheme.colors.textSecondary,
+    color: '#fda4af',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.strong,
   },
   messageDelete: {
-    color: aspectTheme.colors.status.error.text,
+    color: '#fb7185',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.strong,
   },
@@ -3006,16 +3362,16 @@ const styles = StyleSheet.create({
     marginTop: aspectTheme.spacing.xs,
   },
   reactionChip: {
-    backgroundColor: 'rgba(0,0,0,0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: aspectTheme.radius.pill,
     paddingHorizontal: aspectTheme.spacing.sm,
     paddingVertical: aspectTheme.spacing.xxs,
   },
   reactionChipActive: {
-    borderColor: aspectTheme.colors.accentText,
-    backgroundColor: aspectTheme.colors.accentSoft,
+    borderColor: 'rgba(253, 164, 175, 0.55)',
+    backgroundColor: 'rgba(225, 29, 72, 0.24)',
   },
   reactionChipPending: { opacity: 0.6 },
   reactionText: {
@@ -3054,6 +3410,20 @@ const styles = StyleSheet.create({
   },
   messageMetaOwn: { justifyContent: 'flex-end' },
   messageMetaOther: { justifyContent: 'flex-start' },
+  retentionBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.45)',
+    backgroundColor: 'rgba(244, 63, 94, 0.16)',
+  },
+  retentionBadgeText: {
+    color: '#fda4af',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   messageTimestamp: {
     color: aspectTheme.colors.textMuted,
     fontSize: aspectTheme.typography.caption,
@@ -3081,9 +3451,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: aspectTheme.spacing.sm,
-    backgroundColor: aspectTheme.colors.surfacePressed,
+    backgroundColor: 'rgba(225, 29, 72, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(253, 164, 175, 0.25)',
     borderLeftWidth: 3,
-    borderLeftColor: aspectTheme.colors.accent,
+    borderLeftColor: '#fda4af',
     borderRadius: aspectTheme.radius.md,
     paddingHorizontal: aspectTheme.spacing.md,
     paddingVertical: aspectTheme.spacing.sm,
@@ -3097,6 +3469,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   imageButtonText: { color: '#E4E4E7', fontSize: 11, fontWeight: '800' },
+  pendingImageBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(24, 24, 27, 0.88)', borderColor: aspectTheme.colors.border, borderWidth: 1, borderRadius: 14, padding: 8, marginBottom: 8 },
+  pendingImageThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#27272A' },
+  pendingImageTitle: { flex: 1, color: '#F4F4F5', fontSize: 12, fontWeight: '700' },
   messageInput: {
     flex: 1,
     minHeight: 44,
@@ -3161,6 +3536,72 @@ const styles = StyleSheet.create({
     fontWeight: aspectTheme.typography.weight.medium,
   },
   disabled: { opacity: 0.45 },
+  emptyCard: {
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    paddingVertical: 26,
+    borderRadius: 20,
+    backgroundColor: 'rgba(24, 24, 30, 0.78)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.28)',
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as any) : {}),
+    gap: 10,
+  },
+  emptyIconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(244, 63, 94, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.42)',
+    marginBottom: 2,
+  },
+  emptyIconText: {
+    color: '#fda4af',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  emptyTitle: {
+    color: '#F4F4F5',
+    fontSize: 18,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: '#A1A1AA',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  emptyCtaButton: {
+    marginTop: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#E11D48',
+  },
+  emptyCtaText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  emptySecondaryButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(225, 29, 72, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.36)',
+  },
+  emptySecondaryText: {
+    color: '#fda4af',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   emptyChat: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: '#71717A', fontSize: 13 },
   status: { color: '#FCA5A5', fontSize: 11, marginTop: 8 },
