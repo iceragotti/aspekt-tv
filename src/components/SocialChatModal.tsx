@@ -2793,9 +2793,14 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           value={messageDraft}
                           onChangeText={handleMessageDraftChange}
                           onKeyPress={(e: any) => {
-                            if (Platform.OS === 'web' && e?.nativeEvent?.key === 'Enter' && !e?.nativeEvent?.shiftKey) {
-                              e?.preventDefault?.();
-                              void sendMessage();
+                            if (Platform.OS === 'web') {
+                              if (e?.nativeEvent?.key === 'Enter' && !e?.nativeEvent?.shiftKey) {
+                                e?.preventDefault?.();
+                                void sendMessage();
+                              } else if (e?.nativeEvent?.key === 'Escape' && replyingTo) {
+                                e?.preventDefault?.();
+                                setReplyingTo(null);
+                              }
                             }
                           }}
                           placeholder="Nachricht..."
