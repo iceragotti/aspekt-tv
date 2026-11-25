@@ -3362,9 +3362,9 @@ const styles = StyleSheet.create({
     marginTop: aspectTheme.spacing.xs,
   },
   reactionChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(253, 164, 175, 0.24)',
     borderRadius: aspectTheme.radius.pill,
     paddingHorizontal: aspectTheme.spacing.sm,
     paddingVertical: aspectTheme.spacing.xxs,
@@ -3429,7 +3429,7 @@ const styles = StyleSheet.create({
     fontSize: aspectTheme.typography.caption,
   },
   readReceipt: {
-    color: aspectTheme.colors.accentText,
+    color: '#FFF1F2',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.strong,
     textAlign: 'right',
