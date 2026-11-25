@@ -3337,12 +3337,12 @@ const styles = StyleSheet.create({
     marginTop: aspectTheme.spacing.xs,
   },
   messageAction: {
-    color: aspectTheme.colors.textSecondary,
+    color: '#fda4af',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.strong,
   },
   messageDelete: {
-    color: aspectTheme.colors.status.error.text,
+    color: '#fb7185',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.strong,
   },
