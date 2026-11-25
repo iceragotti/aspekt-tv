@@ -294,7 +294,7 @@ function CameraView({ onBack }: { onBack: () => void }) {
                 width: '100%',
                 height: '100%',
                 objectFit: 'cover',
-                backgroundColor: '#09090B',
+                backgroundColor: 'rgba(255, 255, 255, 0.03)',
               },
             })}
           </View>
@@ -863,7 +863,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#09090B',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
   cameraVideoWrap: { flex: 1 },
   cameraFallback: {
@@ -875,7 +875,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-    backgroundColor: '#09090B',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
     gap: 12,
   },
   cameraFallbackIcon: { color: COLORS.muted, fontSize: 42 },
