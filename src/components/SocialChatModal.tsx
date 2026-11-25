@@ -2057,10 +2057,19 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           setReportReason('');
                         }}
                       >
-                        <Text style={styles.profileName}>◉ {group.name}</Text>
-                        <Text style={styles.conversationPreview} numberOfLines={1}>
-                          {lastMessages[`group:${group.id}`] ?? 'Noch keine Nachrichten'}
-                        </Text>
+                        <View style={styles.profileRowInner}>
+                          <View style={styles.profileAvatarBadge}>
+                            <Text style={styles.profileAvatarText}>
+                              {((group.name || "G").trim().charAt(0) || "G").toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={styles.profileMetaCol}>
+                            <Text style={styles.profileName} numberOfLines={1}>{group.name}</Text>
+                            <Text style={styles.conversationPreview} numberOfLines={1}>
+                              {lastMessages[`group:${group.id}`] ?? 'Noch keine Nachrichten'}
+                            </Text>
+                          </View>
+                        </View>
                       </TouchableOpacity>
                     ))}
                     {profiles.map((profile) => (
@@ -2078,19 +2087,28 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           setReportReason('');
                         }}
                       >
-                        <Text style={styles.profileName}>
-                          {profile.display_name}
-                          {profile.role !== 'user' ? ' ✓' : ''}
-                        </Text>
-                        <Text style={styles.profileHandle}>@{profile.handle}</Text>
-                        {reportedUserIds.includes(profile.id) && (
-                          <Text style={styles.reportedSessionBadge}>
-                            In dieser Sitzung gemeldet
-                          </Text>
-                        )}
-                        <Text style={styles.conversationPreview} numberOfLines={1}>
-                          {lastMessages[`user:${profile.id}`] ?? 'Nachricht schreiben'}
-                        </Text>
+                        <View style={styles.profileRowInner}>
+                          <View style={styles.profileAvatarBadge}>
+                            <Text style={styles.profileAvatarText}>
+                              {((profile.display_name || profile.handle || "?").trim().charAt(0) || "?").toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={styles.profileMetaCol}>
+                            <Text style={styles.profileName} numberOfLines={1}>
+                              {profile.display_name}
+                              {profile.role !== 'user' ? ' ✓' : ''}
+                            </Text>
+                            <Text style={styles.profileHandle} numberOfLines={1}>@{profile.handle}</Text>
+                            {reportedUserIds.includes(profile.id) && (
+                              <Text style={styles.reportedSessionBadge}>
+                                In dieser Sitzung gemeldet
+                              </Text>
+                            )}
+                            <Text style={styles.conversationPreview} numberOfLines={1}>
+                              {lastMessages[`user:${profile.id}`] ?? 'Nachricht schreiben'}
+                            </Text>
+                          </View>
+                        </View>
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
@@ -2771,6 +2789,12 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           style={styles.messageInput}
                           value={messageDraft}
                           onChangeText={handleMessageDraftChange}
+                          onKeyPress={(e: any) => {
+                            if (Platform.OS === 'web' && e?.nativeEvent?.key === 'Enter' && !e?.nativeEvent?.shiftKey) {
+                              e?.preventDefault?.();
+                              void sendMessage();
+                            }
+                          }}
                           placeholder="Nachricht..."
                           placeholderTextColor="#71717A"
                           maxLength={1000}
@@ -2825,6 +2849,20 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                         }}
                       >
                         <Text style={styles.emptyCtaText}>Neuen Chat starten</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.emptySecondaryButton}
+                        onPress={() => {
+                          setUserTab('active');
+                          setSelectedProfile(null);
+                          setSelectedGroup(null);
+                          setReportedUserId(null);
+                          setReportedMessageId(null);
+                          setReportReason('');
+                          setGroupCreatorOpen(true);
+                        }}
+                      >
+                        <Text style={styles.emptySecondaryText}>+ Gruppenchat</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -2899,6 +2937,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
     borderRadius: 16,
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as any) : {}),
     padding: 10,
   },
   userHeader: {
@@ -3095,6 +3134,10 @@ const styles = StyleSheet.create({
   },
   profileName: { color: '#F4F4F5', fontSize: 13, fontWeight: '800' },
   profileHandle: { color: '#A1A1AA', fontSize: 11, marginTop: 2 },
+  profileRowInner: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  profileAvatarBadge: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(225, 29, 72, 0.20)', borderWidth: 1, borderColor: 'rgba(253, 164, 175, 0.35)' },
+  profileAvatarText: { color: '#fda4af', fontSize: 13, fontWeight: '800' },
+  profileMetaCol: { flex: 1, minWidth: 0 },
   conversationPreview: {
     color: '#9CA3AF',
     fontSize: 11,
@@ -3145,6 +3188,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(18, 18, 22, 0.58)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.07)',
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as any) : {}),
   },
   chatHeader: {
     flexDirection: 'row',
@@ -3492,6 +3536,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(24, 24, 30, 0.78)',
     borderWidth: 1,
     borderColor: 'rgba(244, 63, 94, 0.28)',
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(16px)' } as any) : {}),
     gap: 10,
   },
   emptyIconBadge: {
@@ -3532,6 +3577,19 @@ const styles = StyleSheet.create({
   emptyCtaText: {
     color: '#FFFFFF',
     fontSize: 13,
+    fontWeight: '700',
+  },
+  emptySecondaryButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(225, 29, 72, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(244, 63, 94, 0.36)',
+  },
+  emptySecondaryText: {
+    color: '#fda4af',
+    fontSize: 12,
     fontWeight: '700',
   },
   emptyChat: { flex: 1, alignItems: 'center', justifyContent: 'center' },
