@@ -110,6 +110,7 @@ export default function SocialChatModal({
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messageScrollRef = useRef<React.ComponentRef<typeof ScrollView> | null>(null);
+  const messageInputRef = useRef<React.ComponentRef<typeof TextInput> | null>(null);
   const shouldAutoScrollToLatestRef = useRef(true);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
@@ -2613,6 +2614,7 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                                 onPress={() => {
                                   setReplyingTo(message);
                                   setStatus('');
+                                  requestAnimationFrame(() => messageInputRef.current?.focus());
                                 }}
                               >
                                 <Text style={[
@@ -2786,6 +2788,7 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           </TouchableOpacity>
                         )}
                         <TextInput
+                          ref={messageInputRef}
                           style={styles.messageInput}
                           value={messageDraft}
                           onChangeText={handleMessageDraftChange}
