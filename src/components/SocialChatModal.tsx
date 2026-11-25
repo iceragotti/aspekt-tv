@@ -3325,7 +3325,7 @@ const styles = StyleSheet.create({
     marginTop: aspectTheme.spacing.xxs,
   },
   messageSender: {
-    color: aspectTheme.colors.accentText,
+    color: '#fda4af',
     fontSize: aspectTheme.typography.caption,
     fontWeight: aspectTheme.typography.weight.heavy,
     marginBottom: aspectTheme.spacing.xxs,
