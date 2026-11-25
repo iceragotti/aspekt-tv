@@ -1,10 +1,10 @@
 export const aspectTheme = {
   colors: {
-    canvas: '#09090B',
-    surface: '#121215',
-    surfaceRaised: '#18181B',
-    surfacePressed: '#27272A',
-    border: '#27272A',
+    canvas: 'rgba(255, 255, 255, 0.03)',
+    surface: 'rgba(255, 255, 255, 0.04)',
+    surfaceRaised: 'rgba(255, 255, 255, 0.05)',
+    surfacePressed: 'rgba(225, 29, 72, 0.22)',
+    border: 'rgba(253, 164, 175, 0.22)',
     borderStrong: '#3F3F46',
     textPrimary: '#FFFFFF',
     textSecondary: '#D4D4D8',
