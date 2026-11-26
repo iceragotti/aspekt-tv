@@ -20,6 +20,8 @@ const DEMO_STREAMS = [
   },
 ];
 
+const DEFAULT_PLACEHOLDER_HOSTS = ["live.aspekt.tv"];
+
 export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
   url,
   isLive,
@@ -29,9 +31,11 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playerNote, setPlayerNote] = useState<string | null>(null);
   const cleanUrl = url.trim();
+  const isPlaceholderUrl = DEFAULT_PLACEHOLDER_HOSTS.some((h) => cleanUrl.includes(h));
+  const shouldRenderPlayer = Platform.OS === "web" && isLive && !disabled && !!cleanUrl && !isPlaceholderUrl;
 
   useEffect(() => {
-    if (Platform.OS !== "web" || !isLive || disabled || !cleanUrl) {
+    if (!shouldRenderPlayer) {
       setPlayerNote(null);
       return;
     }
@@ -40,7 +44,7 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
     if (!videoEl) return;
 
     setPlayerNote(null);
-    const isHls = /.m3u8(\?|$)/i.test(cleanUrl);
+    const isHls = /\.m3u8(\?|$)/i.test(cleanUrl);
 
     if (isHls && !videoEl.canPlayType("application/vnd.apple.mpegurl")) {
       setPlayerNote("Hinweis: .m3u8 erfordert in diesem Browser hls.js oder Safari – wähle ein MP4-Preset oder eine direkte Video-URL.");
@@ -49,10 +53,10 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
 
     videoEl.src = cleanUrl;
     videoEl.load();
-  }, [cleanUrl, isLive, disabled]);
+  }, [cleanUrl, shouldRenderPlayer]);
 
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: 10 }}>
       {onSelectPresetUrl && !disabled && (
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
           {DEMO_STREAMS.map((preset) => (
@@ -76,8 +80,8 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
         </View>
       )}
 
-      {Platform.OS === "web" && isLive && !disabled && cleanUrl ? (
-        <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", borderWidth: 1, borderColor: aspectTheme.colors.border }}>
+      {shouldRenderPlayer && (
+        <View style={{ borderRadius: 12, overflow: "hidden", backgroundColor: "#000", borderWidth: 1, borderColor: aspectTheme.colors.border }}>
           {React.createElement("video", {
             ref: (el: HTMLVideoElement | null) => {
               videoRef.current = el;
@@ -86,13 +90,9 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
             autoPlay: true,
             muted: true,
             playsInline: true,
-            style: { width: "100%", maxHeight: 340, display: "block", backgroundColor: "#000" },
+            style: { width: "100%", maxHeight: 360, display: "block", backgroundColor: "#000" },
           })}
         </View>
-      ) : (
-        <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 12 }}>
-          {!isLive ? "Stream ist auf OFFLINE gesetzt – für Wiedergabe auf LIVE AKTIV schalten." : "Keine Stream-URL aktiv."}
-        </Text>
       )}
 
       {playerNote && (
