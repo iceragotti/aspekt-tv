@@ -70,6 +70,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   const [queuedQuestions, setQueuedQuestions] = useState<Array<{ id: string; author: string; text: string }>>([]);
   const [senderName, setSenderName] = useState<string>("ICE RAGOTTI");
   const [chatInput, setChatInput] = useState<string>("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
 
   const [liquidMode, setLiquidMode] = useState<boolean>(true);
   const [pinnedBanner, setPinnedBanner] = useState<string>("Willkommen im ASPEKT.TV Live-Chat – stellt eure Fragen direkt in die Runde.");
@@ -958,7 +959,71 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                 </View>
               </View>
 
-              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+              {showEmojiPicker && (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: 6,
+                      padding: 10,
+                      marginBottom: 8,
+                      borderRadius: 16,
+                      backgroundColor: liquidMode
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : aspectTheme.colors.surfaceRaised,
+                      borderWidth: 1,
+                      borderColor: liquidMode
+                        ? "rgba(255, 255, 255, 0.22)"
+                        : aspectTheme.colors.border,
+                    }}
+                  >
+                    {["😀","😂","🤣","😊","😍","🤩","😎","🤔","🙌","👏","👍","❤️","🔥","💯","🎉","🎙️"].map((em) => (
+                      <TouchableOpacity
+                        key={em}
+                        onPress={() => setChatInput((prev) => `${prev}${em}`)}
+                        style={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: 10,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          backgroundColor: liquidMode
+                            ? "rgba(255, 255, 255, 0.06)"
+                            : aspectTheme.colors.surface,
+                          borderWidth: 1,
+                          borderColor: "rgba(255, 255, 255, 0.14)",
+                        }}
+                      >
+                        <Text style={{ fontSize: 17 }}>{em}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <TouchableOpacity
+                    onPress={() => setShowEmojiPicker((prev) => !prev)}
+                    style={{
+                      height: 40,
+                      paddingHorizontal: 10,
+                      borderRadius: 12,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      backgroundColor: showEmojiPicker
+                        ? aspectTheme.colors.accentSoft
+                        : liquidMode
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : aspectTheme.colors.surfaceRaised,
+                      borderWidth: 1,
+                      borderColor: showEmojiPicker
+                        ? aspectTheme.colors.accentText
+                        : liquidMode
+                        ? "rgba(255, 255, 255, 0.2)"
+                        : aspectTheme.colors.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 16 }}>😊</Text>
+                  </TouchableOpacity>
+                  <View style={{ flex: 1 }}><View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <TextInput
                   value={chatInput}
                   onChangeText={setChatInput}
@@ -986,6 +1051,8 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       : null,
                   ]}
                 />
+                  </View>
+                </View>
                 <TouchableOpacity
                   onPress={handleSendMessage}
                   style={[
