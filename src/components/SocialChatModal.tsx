@@ -3062,8 +3062,9 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   exportButton: {
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-    borderColor: "rgba(255, 228, 230, 0.28)",
+    backgroundColor: "rgba(18, 18, 21, 0.88)",
+    borderColor: "rgba(253, 164, 175, 0.32)",
+    borderTopColor: "rgba(255, 228, 230, 0.44)",
     borderWidth: 1,
     borderRadius: aspectTheme.radius.sm,
     paddingVertical: 9,
