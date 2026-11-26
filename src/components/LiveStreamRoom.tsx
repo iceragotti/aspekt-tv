@@ -559,8 +559,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                           ? "rgba(255, 255, 255, 0.07)"
                           : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
-                        borderColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.16)"
+                        borderColor: liquidMode ? "rgba(255, 255, 255, 0.30)"
                           : aspectTheme.colors.border,
                         fontSize: 12,
                       },
@@ -590,8 +589,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       {
                         padding: 11,
                         borderRadius: liquidMode ? 18 : 12,
-                        backgroundColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.08)"
+                        backgroundColor: liquidMode ? "rgba(255, 255, 255, 0.16)"
                           : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
                         borderColor: liquidMode
@@ -635,6 +633,27 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                         >
                           {msg.author}
                         </Text>
+                          {(msg.author.toLowerCase().includes("aspekt") ||
+                            msg.author.toLowerCase().includes("ragotti")) && (
+                            <View
+                              style={{
+                                paddingVertical: 1,
+                                paddingHorizontal: 6,
+                                borderRadius: 999,
+                                backgroundColor: "rgba(232, 23, 93, 0.24)",
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: aspectTheme.colors.accentText,
+                                  fontSize: 9,
+                                  fontWeight: "800",
+                                }}
+                              >
+                                HOST
+                              </Text>
+                            </View>
+                          )}
                         <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
                           {msg.handle}
                         </Text>
@@ -691,12 +710,10 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                         paddingVertical: 4,
                         paddingHorizontal: 8,
                         borderRadius: 999,
-                        backgroundColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.08)"
+                        backgroundColor: liquidMode ? "rgba(255, 255, 255, 0.16)"
                           : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
-                        borderColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.16)"
+                        borderColor: liquidMode ? "rgba(255, 255, 255, 0.30)"
                           : aspectTheme.colors.border,
                       }}
                     >
