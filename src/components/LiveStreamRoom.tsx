@@ -965,8 +965,9 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       flexDirection: "row",
                       flexWrap: "wrap",
                       gap: 6,
-                      padding: 10,
-                      marginBottom: 8,
+                      padding: 12,
+                      marginTop: 8,
+                      marginBottom: 10,
                       borderRadius: 16,
                       backgroundColor: liquidMode
                         ? "rgba(255, 255, 255, 0.08)"
@@ -997,6 +998,31 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                         <Text style={{ fontSize: 17 }}>{em}</Text>
                       </TouchableOpacity>
                     ))}
+                    <TouchableOpacity
+                      onPress={() => setShowEmojiPicker(false)}
+                      style={{
+                        height: 34,
+                        paddingHorizontal: 10,
+                        borderRadius: 10,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.1)"
+                          : aspectTheme.colors.surface,
+                        borderWidth: 1,
+                        borderColor: "rgba(255, 255, 255, 0.18)",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: aspectTheme.colors.textSecondary,
+                          fontSize: 11,
+                          fontWeight: "700",
+                        }}
+                      >
+                        Fertig
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 )}
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
