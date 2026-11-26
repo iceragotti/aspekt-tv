@@ -71,6 +71,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   const [senderName, setSenderName] = useState<string>("ICE RAGOTTI");
   const [chatInput, setChatInput] = useState<string>("");
   const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
+  const [roundPulse, setRoundPulse] = useState<"Fragerunde offen" | "Meinungs-Check" | "Track / Release-Vibe" | "Offene Bühne">("Fragerunde offen");
 
   const [liquidMode, setLiquidMode] = useState<boolean>(true);
   const [pinnedBanner, setPinnedBanner] = useState<string>("Willkommen im ASPEKT.TV Live-Chat – stellt eure Fragen direkt in die Runde.");
@@ -723,6 +724,76 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       {ageMode === "18+" ? "18+ FREIGEGEBEN" : "U18 SCHUTZ AKTIV"}
                     </Text>
                   </View>
+                </View>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: 6,
+                    marginBottom: 10,
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 14,
+                    backgroundColor: liquidMode
+                      ? "rgba(255, 255, 255, 0.05)"
+                      : aspectTheme.colors.surfaceRaised,
+                    borderWidth: 1,
+                    borderColor: liquidMode
+                      ? "rgba(255, 255, 255, 0.14)"
+                      : aspectTheme.colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.textMuted,
+                      fontSize: 10,
+                      fontWeight: "800",
+                      letterSpacing: 0.5,
+                      marginRight: 4,
+                    }}
+                  >
+                    RUNDEN-IMPULS:
+                  </Text>
+                  {(["Fragerunde offen", "Meinungs-Check", "Track / Release-Vibe", "Offene Bühne"] as const).map((mode) => {
+                    const active = roundPulse === mode;
+                    return (
+                      <TouchableOpacity
+                        key={mode}
+                        onPress={() => setRoundPulse(mode)}
+                        style={{
+                          paddingVertical: 4,
+                          paddingHorizontal: 10,
+                          borderRadius: 999,
+                          backgroundColor: active
+                            ? liquidMode
+                              ? "rgba(255, 255, 255, 0.16)"
+                              : aspectTheme.colors.accentSoft
+                            : liquidMode
+                            ? "rgba(255, 255, 255, 0.04)"
+                            : aspectTheme.colors.surface,
+                          borderWidth: 1,
+                          borderColor: active
+                            ? aspectTheme.colors.accentText
+                            : liquidMode
+                            ? "rgba(255, 255, 255, 0.14)"
+                            : aspectTheme.colors.border,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: active
+                              ? aspectTheme.colors.textPrimary
+                              : aspectTheme.colors.textSecondary,
+                            fontSize: 11,
+                            fontWeight: active ? "800" : "600",
+                          }}
+                        >
+                          {mode}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
                 <View
                   style={{
