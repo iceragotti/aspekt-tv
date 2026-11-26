@@ -174,6 +174,54 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
 
               {STREAM_ROOMS.map((room) => {
                 const selected = room.id === activeRoom.id;
+  return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: aspectTheme.colors.canvas }}
+      contentContainerStyle={{ padding: 14, gap: 16 }}
+    >
+      <View
+        style={{
+          flexDirection: Platform.OS === "web" ? "row" : "column",
+          flexWrap: "wrap",
+          alignItems: "flex-start",
+          gap: 16,
+        }}
+      >
+        <View style={{ flex: 1.75, minWidth: 320, gap: 12 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 8,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <TouchableOpacity
+                onPress={() => setHostMode((prev) => !prev)}
+                style={{
+                  paddingVertical: 7,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  backgroundColor: hostMode ? aspectTheme.colors.accentSoft : aspectTheme.colors.surface,
+                  borderWidth: 1,
+                  borderColor: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.textSecondary,
+                    fontWeight: "800",
+                    fontSize: 11,
+                  }}
+                >
+                  {hostMode ? "HOST-MODUS AN" : "HOST-MODUS AUS"}
+                </Text>
+              </TouchableOpacity>
+
+              {STREAM_ROOMS.map((room) => {
+                const selected = room.id === activeRoom.id;
                 return (
                   <TouchableOpacity
                     key={room.id}
