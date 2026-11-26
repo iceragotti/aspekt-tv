@@ -67,6 +67,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   });
   const [hostMode, setHostMode] = useState<boolean>(true);
   const [hiddenMessageIds, setHiddenMessageIds] = useState<string[]>([]);
+  const [queuedQuestions, setQueuedQuestions] = useState<Array<{ id: string; author: string; text: string }>>([]);
   const [senderName, setSenderName] = useState<string>("ICE RAGOTTI");
   const [chatInput, setChatInput] = useState<string>("");
 
@@ -475,6 +476,90 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     : null,
                 ]}
               >
+                {hostMode && queuedQuestions.length > 0 && (
+                  <View
+                    style={{
+                      padding: 12,
+                      borderRadius: 14,
+                      backgroundColor: aspectTheme.colors.surfaceRaised,
+                      borderWidth: 1,
+                      borderColor: aspectTheme.colors.border,
+                      marginBottom: 10,
+                      gap: 8,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: aspectTheme.colors.accentText,
+                        fontSize: 11,
+                        fontWeight: "800",
+                        letterSpacing: 0.6,
+                      }}
+                    >
+                      STAGE-QUEUE ({queuedQuestions.length})
+                    </Text>
+                    {queuedQuestions.map((item) => (
+                      <View
+                        key={item.id}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          paddingVertical: 6,
+                          paddingHorizontal: 10,
+                          borderRadius: 10,
+                          backgroundColor: aspectTheme.colors.surface,
+                        }}
+                      >
+                        <Text
+                          numberOfLines={2}
+                          style={{
+                            flex: 1,
+                            color: aspectTheme.colors.textPrimary,
+                            fontSize: 12,
+                          }}
+                        >
+                          <Text style={{ fontWeight: "700" }}>{item.author}: </Text>
+                          {item.text}
+                        </Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setPinnedBanner(`${item.author}: ${item.text}`);
+                              setQueuedQuestions((prev) => prev.filter((q) => q.id !== item.id));
+                            }}
+                          >
+                            <Text
+                              style={{
+                                color: aspectTheme.colors.accentText,
+                                fontSize: 11,
+                                fontWeight: "700",
+                              }}
+                            >
+                              Auf Banner
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={() =>
+                              setQueuedQuestions((prev) => prev.filter((q) => q.id !== item.id))
+                            }
+                          >
+                            <Text
+                              style={{
+                                color: aspectTheme.colors.textMuted,
+                                fontSize: 11,
+                                fontWeight: "700",
+                              }}
+                            >
+                              Entfernen
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 <View
                   style={{
                     flexDirection: "row",
@@ -699,6 +784,25 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                                   }}
                                 >
                                   Anpinnen
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() =>
+                                  setQueuedQuestions((prev) =>
+                                    prev.some((q) => q.id === msg.id)
+                                      ? prev
+                                      : [...prev, { id: msg.id, author: msg.author, text: msg.text }]
+                                  )
+                                }
+                              >
+                                <Text
+                                  style={{
+                                    color: aspectTheme.colors.textSecondary,
+                                    fontSize: 11,
+                                    fontWeight: "700",
+                                  }}
+                                >
+                                  Vormerken
                                 </Text>
                               </TouchableOpacity>
                               <TouchableOpacity
