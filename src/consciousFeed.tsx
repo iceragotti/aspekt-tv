@@ -754,6 +754,17 @@ export function ConsciousFeed({
         ))}
       </View>
 
+      <View style={styles.transparencyCard}>
+        <Text style={styles.transparencyEyebrow}>FEED-TRANSPARENZ · AKTIVER MODUS</Text>
+        <Text style={styles.transparencyText}>
+          {mode === "chronological"
+            ? "Chronologisch: Beiträge erscheinen strikt nach Zeitpunkt ohne algorithmische Reichweiten-Gewichtung."
+            : mode === "following"
+              ? "Folge ich: Zeigt ausschließlich Inhalte von Konten, denen du aktiv folgst."
+              : "Fokus: Reduziert Ablenkung auf kuratierte, ruhige Beiträge innerhalb deines Session-Limits."}
+        </Text>
+      </View>
+
       {visiblePosts.map((post) => (
         <View key={post.id} style={styles.postCard}>
           <View style={styles.postHeader}>
@@ -976,11 +987,31 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   modeButtonSelected: {
-    borderColor: 'rgba(253, 164, 175, 0.55)',
-    backgroundColor: 'rgba(225, 29, 72, 0.22)',
+    backgroundColor: "rgba(225, 29, 72, 0.14)",
+    borderColor: "rgba(253, 164, 175, 0.42)",
   },
-  modeText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
-  modeTextSelected: { color: '#fda4af' },
+  modeText: { color: COLORS.muted, fontSize: 12, fontWeight: "700" },
+  modeTextSelected: { color: "#ffe4e6", fontWeight: "800" },
+  transparencyCard: {
+    backgroundColor: "rgba(18, 18, 21, 0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(253, 164, 175, 0.30)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  transparencyEyebrow: {
+    color: "#fda4af",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  transparencyText: {
+    color: "#ffe4e6",
+    fontSize: 12,
+    lineHeight: 17,
+  },
   postCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
