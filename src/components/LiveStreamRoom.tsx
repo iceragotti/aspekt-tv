@@ -660,41 +660,69 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     flexWrap: "wrap",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    gap: 8,
-                    paddingVertical: 7,
+                    rowGap: 6,
+                    columnGap: 10,
+                    paddingVertical: 8,
                     paddingHorizontal: 12,
                     marginBottom: 10,
-                    borderRadius: 12,
+                    borderRadius: 14,
                     backgroundColor: liquidMode
-                      ? "rgba(255, 255, 255, 0.06)"
+                      ? "rgba(255, 255, 255, 0.07)"
                       : aspectTheme.colors.surfaceRaised,
                     borderWidth: 1,
                     borderColor: liquidMode
-                      ? "rgba(255, 255, 255, 0.16)"
+                      ? "rgba(255, 255, 255, 0.18)"
                       : aspectTheme.colors.border,
                     borderTopColor: liquidMode
-                      ? "rgba(255, 255, 255, 0.28)"
+                      ? "rgba(255, 255, 255, 0.32)"
                       : aspectTheme.colors.border,
                   }}
                 >
                   <Text
                     style={{
+                      flexShrink: 1,
                       color: aspectTheme.colors.textSecondary,
                       fontSize: 11,
                       fontWeight: "700",
+                      lineHeight: 15,
                     }}
                   >
                     REGIE-STATUS · {selectedRoomId === "adult-18-live" ? "18+ Night Session" : "ASPEKT Studio Live"} · Block: {sessionChapter}
                   </Text>
-                  <Text
+                  <View
                     style={{
-                      color: ageMode === "18+" ? aspectTheme.colors.accentText : aspectTheme.colors.textMuted,
-                      fontSize: 11,
-                      fontWeight: "800",
+                      paddingVertical: 2,
+                      paddingHorizontal: 8,
+                      borderRadius: 999,
+                      backgroundColor:
+                        ageMode === "18+"
+                          ? aspectTheme.colors.accentSoft
+                          : liquidMode
+                          ? "rgba(255, 255, 255, 0.08)"
+                          : aspectTheme.colors.surface,
+                      borderWidth: 1,
+                      borderColor:
+                        ageMode === "18+"
+                          ? aspectTheme.colors.accentText
+                          : liquidMode
+                          ? "rgba(255, 255, 255, 0.2)"
+                          : aspectTheme.colors.border,
                     }}
                   >
-                    {ageMode === "18+" ? "18+ FREIGEGEBEN" : "U18 SCHUTZ AKTIV"}
-                  </Text>
+                    <Text
+                      style={{
+                        color:
+                          ageMode === "18+"
+                            ? aspectTheme.colors.accentText
+                            : aspectTheme.colors.textSecondary,
+                        fontSize: 10,
+                        fontWeight: "800",
+                        letterSpacing: 0.4,
+                      }}
+                    >
+                      {ageMode === "18+" ? "18+ FREIGEGEBEN" : "U18 SCHUTZ AKTIV"}
+                    </Text>
+                  </View>
                 </View>
                 <View
                   style={{
