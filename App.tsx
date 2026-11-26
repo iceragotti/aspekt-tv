@@ -14,6 +14,7 @@ import {
 import SocialChatModal from './src/components/SocialChatModal';
 import { ConsciousFeedBar } from './src/consciousFeed';
 import { aspectTheme } from './src/aspectTheme';
+import { ReportsCommunityPanel } from './src/components/ReportsCommunityPanel';
 
 type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 'Reporter' | 'Creator';
 type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigegeben';
@@ -2212,6 +2213,7 @@ export default function App() {
           )}
 
           {tab === 'Redaktion' && (
+              <ReportsCommunityPanel />
             !loggedIn ? (
               <View style={styles.cmsLocked}>
                 <Text style={styles.sectionTitle}>Redaktion anmelden</Text>
