@@ -916,13 +916,14 @@ const styles = StyleSheet.create({
   eyebrow: { color: COLORS.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
   title: { color: COLORS.text, fontSize: 24, fontWeight: '900', marginTop: 3 },
   privacyButton: {
+    backgroundColor: "rgba(18, 18, 21, 0.92)",
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: "rgba(253, 164, 175, 0.36)",
     borderRadius: 9,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  privacyButtonText: { color: COLORS.text, fontSize: 11, fontWeight: '800' },
+  privacyButtonText: { color: "#ffe4e6", fontSize: 11, fontWeight: "800" },
   sessionCard: {
     backgroundColor: COLORS.surface,
     borderWidth: 1,
