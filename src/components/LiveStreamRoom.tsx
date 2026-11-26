@@ -879,37 +879,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                 )}
               </View>
 
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
-                  <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "700" }}>
-                    Als:
-                  </Text>
-                  <TextInput
-                    value={senderName}
-                    onChangeText={setSenderName}
-                    placeholder="Anzeigename..."
-                    placeholderTextColor={aspectTheme.colors.textMuted}
-                    style={[
-                      {
-                        flex: 1,
-                        maxWidth: 220,
-                        paddingVertical: 5,
-                        paddingHorizontal: 12,
-                        borderRadius: 999,
-                        color: aspectTheme.colors.textPrimary,
-                        backgroundColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.07)"
-                          : aspectTheme.colors.surfaceRaised,
-                        borderWidth: 1,
-                        borderColor: liquidMode ? "rgba(255, 255, 255, 0.30)"
-                          : aspectTheme.colors.border,
-                        fontSize: 12,
-                      },
-                      Platform.OS === "web" && liquidMode
-                        ? ({ backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" } as any)
-                        : null,
-                    ]}
-                  />
-                </View>
+              
                 <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
                   {hostMode ? "Host-Moderations-Ansicht aktiv" : "Zuschauer-Ansicht"}
                 </Text>
@@ -1190,7 +1160,38 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   >
                     <Text style={{ fontSize: 16 }}>😊</Text>
                   </TouchableOpacity>
-                  <View style={{ flex: 1 }}><View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                  <View style={{ flex: 1 }}><View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}><View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
+                  <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "700" }}>
+                    Als:
+                  </Text>
+                  <TextInput
+                    value={senderName}
+                    onChangeText={setSenderName}
+                    placeholder="Anzeigename..."
+                    placeholderTextColor={aspectTheme.colors.textMuted}
+                    style={[
+                      {
+                        flex: 1,
+                        maxWidth: 220,
+                        paddingVertical: 5,
+                        paddingHorizontal: 12,
+                        borderRadius: 999,
+                        color: aspectTheme.colors.textPrimary,
+                        backgroundColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.07)"
+                          : aspectTheme.colors.surfaceRaised,
+                        borderWidth: 1,
+                        borderColor: liquidMode ? "rgba(255, 255, 255, 0.30)"
+                          : aspectTheme.colors.border,
+                        fontSize: 12,
+                      },
+                      Platform.OS === "web" && liquidMode
+                        ? ({ backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" } as any)
+                        : null,
+                    ]}
+                  />
+                </View></View>
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <TextInput
                   value={chatInput}
                   onChangeText={setChatInput}
