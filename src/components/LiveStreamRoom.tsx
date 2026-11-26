@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform } from "r
 import { aspectTheme } from "../aspectTheme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { VerifiedBadge } from "./VerifiedBadge";
+import { HostCameraStage } from "./HostCameraStage";
 
 export interface LiveStreamRoomProps {
   ageMode: "U18" | "18+";
