@@ -71,6 +71,8 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   const [chatInput, setChatInput] = useState<string>("");
 
   const [liquidMode, setLiquidMode] = useState<boolean>(true);
+  const [pinnedBanner, setPinnedBanner] = useState<string>("Willkommen im ASPEKT.TV Live-Chat – stellt eure Fragen direkt in die Runde.");
+  const [editingPin, setEditingPin] = useState<boolean>(false);
 
   const [splitDesktop, setSplitDesktop] = useState<boolean>(false);
   const { width: winWidth } = useWindowDimensions();
@@ -453,7 +455,90 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   flexWrap: "wrap",
                 }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
+                <View
+                style={[
+                  {
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: liquidMode ? 16 : 10,
+                    backgroundColor: liquidMode
+                      ? "rgba(232, 23, 93, 0.12)"
+                      : aspectTheme.colors.surfaceRaised,
+                    borderWidth: 1,
+                    borderColor: liquidMode
+                      ? "rgba(232, 23, 93, 0.35)"
+                      : aspectTheme.colors.border,
+                    gap: 6,
+                  },
+                  Platform.OS === "web" && liquidMode
+                    ? ({ backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" } as any)
+                    : null,
+                ]}
+              >
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.accentText,
+                      fontSize: 10,
+                      fontWeight: "800",
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    ANGEPINNT · THEMA DER RUNDE
+                  </Text>
+                  {hostMode && (
+                    <TouchableOpacity onPress={() => setEditingPin((prev) => !prev)}>
+                      <Text
+                        style={{
+                          color: aspectTheme.colors.textPrimary,
+                          fontSize: 11,
+                          fontWeight: "700",
+                        }}
+                      >
+                        {editingPin ? "Fertig" : "Bearbeiten"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {editingPin && hostMode ? (
+                  <TextInput
+                    value={pinnedBanner}
+                    onChangeText={setPinnedBanner}
+                    placeholder="Angepinntes Thema eingeben..."
+                    placeholderTextColor={aspectTheme.colors.textMuted}
+                    style={{
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: 10,
+                      color: aspectTheme.colors.textPrimary,
+                      backgroundColor: "rgba(0, 0, 0, 0.25)",
+                      borderWidth: 1,
+                      borderColor: "rgba(255, 255, 255, 0.18)",
+                      fontSize: 12,
+                    }}
+                  />
+                ) : (
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: "600",
+                      lineHeight: 17,
+                    }}
+                  >
+                    {pinnedBanner}
+                  </Text>
+                )}
+              </View>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
                   <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "700" }}>
                     Als:
                   </Text>
@@ -590,6 +675,36 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   </View>
                 ))}
               </ScrollView>
+
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
+                  Schnell-Reaktion:
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                  {["🔥", "👏", "❓", "🎙️"].map((emoji) => (
+                    <TouchableOpacity
+                      key={emoji}
+                      onPress={() =>
+                        setChatInput((prev) => (prev ? `${prev} ${emoji}` : emoji))
+                      }
+                      style={{
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: 999,
+                        backgroundColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.08)"
+                          : aspectTheme.colors.surfaceRaised,
+                        borderWidth: 1,
+                        borderColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.16)"
+                          : aspectTheme.colors.border,
+                      }}
+                    >
+                      <Text style={{ fontSize: 12 }}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
 
               <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <TextInput
