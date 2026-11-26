@@ -124,6 +124,11 @@ export default function SocialChatModal({
   const [messageImageUrls, setMessageImageUrls] = useState<Record<string, string>>({});
   const [recordingAudio, setRecordingAudio] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingLocked, setRecordingLocked] = useState(false);
+  const voiceLockedRef = useRef(false);
+  const voiceStartYRef = useRef<number | null>(null);
+  const pendingAudioElRef = useRef<HTMLAudioElement | null>(null);
+  const [playingPendingAudio, setPlayingPendingAudio] = useState(false);
   const [pendingAudio, setPendingAudio] = useState<{
     blob: Blob;
     previewUrl: string;
@@ -163,21 +168,30 @@ export default function SocialChatModal({
     }
   };
 
-  const toggleVoiceRecording = async () => {
+  const stopVoiceRecording = () => {
+    voiceLockedRef.current = false;
+    voiceStartYRef.current = null;
+    setRecordingLocked(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setRecordingAudio(false);
+    stopAudioStreamAndTimer();
+  };
+
+  const startVoiceRecording = async (startY?: number) => {
     if (Platform.OS !== "web" || typeof navigator === "undefined" || typeof MediaRecorder === "undefined") {
       setStatus("Sprachnachrichten sind aktuell im Web-Browser verfügbar.");
       return;
     }
-    if (sendingMessageRef.current || uploadingImageRef.current) return;
-
-    if (recordingAudio && mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setRecordingAudio(false);
-      stopAudioStreamAndTimer();
-      return;
-    }
+    if (sendingMessageRef.current || uploadingImageRef.current || recordingAudio) return;
 
     try {
+      if (pendingAudioElRef.current) {
+        pendingAudioElRef.current.pause();
+        pendingAudioElRef.current.currentTime = 0;
+        setPlayingPendingAudio(false);
+      }
       clearPendingAudio();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
@@ -190,6 +204,9 @@ export default function SocialChatModal({
       audioChunksRef.current = [];
       recordingSecRef.current = 0;
       setRecordingSeconds(0);
+      voiceLockedRef.current = false;
+      voiceStartYRef.current = typeof startY === "number" ? startY : null;
+      setRecordingLocked(false);
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -204,6 +221,9 @@ export default function SocialChatModal({
         const durationSec = Math.max(1, recordingSecRef.current);
         stopAudioStreamAndTimer();
         setRecordingAudio(false);
+        setRecordingLocked(false);
+        voiceLockedRef.current = false;
+        voiceStartYRef.current = null;
         if (blob.size === 0 || typeof URL === "undefined") return;
         const previewUrl = URL.createObjectURL(blob);
         setPendingAudio({ blob, previewUrl, durationSec, mimeType: finalMime });
@@ -213,7 +233,7 @@ export default function SocialChatModal({
       mediaRecorderRef.current = recorder;
       recorder.start();
       setRecordingAudio(true);
-      setStatus("Aufnahme läuft … erneut auf Sprache tippen zum Beenden.");
+      setStatus("Gedrückt halten zum Sprechen · Nach oben ziehen zum Sperren · Loslassen zum Stoppen.");
       audioTimerRef.current = setInterval(() => {
         recordingSecRef.current += 1;
         setRecordingSeconds(recordingSecRef.current);
@@ -221,7 +241,34 @@ export default function SocialChatModal({
     } catch {
       stopAudioStreamAndTimer();
       setRecordingAudio(false);
+      setRecordingLocked(false);
+      voiceLockedRef.current = false;
+      voiceStartYRef.current = null;
       setStatus("Mikrofon-Zugriff wurde blockiert oder ist nicht verfügbar.");
+    }
+  };
+
+  const toggleVoiceRecording = async () => {
+    if (recordingAudio) {
+      stopVoiceRecording();
+      return;
+    }
+    await startVoiceRecording();
+  };
+
+  const togglePendingAudioPlayback = () => {
+    if (Platform.OS !== "web" || !pendingAudio || typeof Audio === "undefined") return;
+    if (!pendingAudioElRef.current || pendingAudioElRef.current.src !== pendingAudio.previewUrl) {
+      const el = new Audio(pendingAudio.previewUrl);
+      el.onended = () => setPlayingPendingAudio(false);
+      pendingAudioElRef.current = el;
+    }
+    const audioEl = pendingAudioElRef.current;
+    if (playingPendingAudio || !audioEl.paused) {
+      audioEl.pause();
+      setPlayingPendingAudio(false);
+    } else {
+      void audioEl.play().then(() => setPlayingPendingAudio(true)).catch(() => setPlayingPendingAudio(false));
     }
   };
   const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string; name: string } | null>(null);
@@ -2727,8 +2774,17 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           <Text style={styles.pendingImageTitle} numberOfLines={1}>
                             Sprachnachricht ({pendingAudio.durationSec}s)
                           </Text>
-                          {Platform.OS === 'web' && (
-                            <audio src={pendingAudio.previewUrl} controls style={{ maxWidth: 180, height: 30 }} />
+                          {Platform.OS === "web" && (
+                            <TouchableOpacity
+                              style={styles.secondary}
+                              onPress={togglePendingAudioPlayback}
+                              accessibilityRole="button"
+                              accessibilityLabel={playingPendingAudio ? "Sprachnachricht stoppen" : "Sprachnachricht abspielen"}
+                            >
+                              <Text style={styles.messageAction}>
+                                {playingPendingAudio ? "⏹ Stopp" : "▶ Abspielen"}
+                              </Text>
+                            </TouchableOpacity>
                           )}
                           <TouchableOpacity
                             onPress={() => {
@@ -2755,16 +2811,29 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                           <TouchableOpacity
                             style={[
                               styles.imageButton,
-                              recordingAudio && { borderColor: '#F43F5E', backgroundColor: 'rgba(244, 63, 94, 0.22)' },
+                              recordingAudio && { borderColor: "#F43F5E", backgroundColor: "rgba(244, 63, 94, 0.22)" },
+                              recordingLocked && { borderColor: "#FDA4AF", backgroundColor: "rgba(225, 29, 72, 0.34)" },
                               (isBlocked || uploadingImage || sendingMessage) && styles.disabled,
                             ]}
-                            onPress={() => void toggleVoiceRecording()}
+                            onPressIn={(e: any) => {
+                              const y = e?.nativeEvent?.pageY ?? e?.nativeEvent?.clientY ?? null;
+                              if (recordingAudio && recordingLocked) {
+                                stopVoiceRecording();
+                              } else if (!recordingAudio) {
+                                void startVoiceRecording(typeof y === "number" ? y : undefined);
+                              }
+                            }}
+                            onPressOut={() => {
+                              if (recordingAudio && !voiceLockedRef.current) {
+                                stopVoiceRecording();
+                              }
+                            }}
                             disabled={isBlocked || uploadingImage || sendingMessage}
                             accessibilityRole="button"
-                            accessibilityLabel={recordingAudio ? 'Aufnahme beenden' : 'Sprachnachricht aufnehmen'}
+                            accessibilityLabel={recordingAudio ? (recordingLocked ? "Aufnahme gesperrt, zum Stoppen tippen" : "Halten zum Sprechen, nach oben ziehen zum Sperren") : "Sprachnachricht gedrückt halten"}
                           >
                             <Text style={styles.imageButtonText}>
-                              {recordingAudio ? `Stop ${recordingSeconds}s` : 'Mic'}
+                              {recordingAudio ? (recordingLocked ? `🔒 Stop ${recordingSeconds}s` : `↑ Lock · ${recordingSeconds}s`) : "Mic"}
                             </Text>
                           </TouchableOpacity>
                         )}
