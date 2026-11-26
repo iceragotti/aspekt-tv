@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform } from "react-native";
 import { aspectTheme } from "../aspectTheme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { VerifiedBadge } from "./VerifiedBadge";
