@@ -489,4 +489,3 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
     </ScrollView>
   );
 };
-
