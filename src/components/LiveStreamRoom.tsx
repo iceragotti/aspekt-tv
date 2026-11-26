@@ -168,10 +168,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
     <ScrollView style={{ flex: 1, backgroundColor: aspectTheme.colors.canvas }} contentContainerStyle={{ padding: 14, gap: 14 }}>
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          {STREAM_ROOMS.map((room) => {
-            const selected = room.id === selectedRoomId;
-            return (
-              <TouchableOpacity
+          <TouchableOpacity
             onPress={() => setHostMode((prev) => !prev)}
             style={{
               paddingVertical: 7,
@@ -186,8 +183,10 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
               {hostMode ? "HOST-MODUS AN" : "ZUSCHAUER-MODUS"}
             </Text>
           </TouchableOpacity>
-
-          <TouchableOpacity
+            {STREAM_ROOMS.map((room) => {
+            const selected = room.id === selectedRoomId;
+            return (
+              <TouchableOpacity
                 key={room.id}
                 onPress={() => setSelectedRoomId(room.id)}
                 style={{
