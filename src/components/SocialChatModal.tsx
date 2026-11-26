@@ -129,6 +129,9 @@ export default function SocialChatModal({
   const voiceStartYRef = useRef<number | null>(null);
   const pendingAudioElRef = useRef<HTMLAudioElement | null>(null);
   const [playingPendingAudio, setPlayingPendingAudio] = useState(false);
+  const [activePlayingVoiceId, setActivePlayingVoiceId] = useState<string | null>(null);
+  const [voiceProgressMap, setVoiceProgressMap] = useState<Record<string, number>>({});
+  const chatAudioElRef = useRef<HTMLAudioElement | null>(null);
   const [pendingAudio, setPendingAudio] = useState<{
     blob: Blob;
     previewUrl: string;
@@ -258,6 +261,10 @@ export default function SocialChatModal({
 
   const togglePendingAudioPlayback = () => {
     if (Platform.OS !== "web" || !pendingAudio || typeof Audio === "undefined") return;
+    if (chatAudioElRef.current) {
+      chatAudioElRef.current.pause();
+      setActivePlayingVoiceId(null);
+    }
     if (!pendingAudioElRef.current || pendingAudioElRef.current.src !== pendingAudio.previewUrl) {
       const el = new Audio(pendingAudio.previewUrl);
       el.onended = () => setPlayingPendingAudio(false);
@@ -270,6 +277,54 @@ export default function SocialChatModal({
     } else {
       void audioEl.play().then(() => setPlayingPendingAudio(true)).catch(() => setPlayingPendingAudio(false));
     }
+  };
+
+  const parseVoiceBody = (rawBody: string): { durationSec: number; src: string } | null => {
+    const match = /^\[voice:(\d+):(.+)\]$/.exec((rawBody || "").trim());
+    if (!match) return null;
+    const durationSec = Math.max(1, Number(match[1]) || 1);
+    const rawSrc = match[2];
+    const src = rawSrc.startsWith("blob:") || rawSrc.startsWith("http") || typeof supabase === "undefined"
+      ? rawSrc
+      : supabase.storage.from(CHAT_IMAGES_BUCKET).getPublicUrl(rawSrc).data.publicUrl;
+    return { durationSec, src };
+  };
+
+  const formatVoiceTime = (sec: number) => {
+    const safe = Math.max(0, Math.floor(sec));
+    const m = Math.floor(safe / 60);
+    const r = safe % 60;
+    return `${m}:${String(r).padStart(2, "0")}`;
+  };
+
+  const toggleChatVoicePlayback = (msgId: string, src: string, durationSec: number) => {
+    if (Platform.OS !== "web" || typeof Audio === "undefined" || !src) return;
+    if (pendingAudioElRef.current && !pendingAudioElRef.current.paused) {
+      pendingAudioElRef.current.pause();
+      setPlayingPendingAudio(false);
+    }
+    if (activePlayingVoiceId === msgId && chatAudioElRef.current && !chatAudioElRef.current.paused) {
+      chatAudioElRef.current.pause();
+      setActivePlayingVoiceId(null);
+      return;
+    }
+    if (chatAudioElRef.current) {
+      chatAudioElRef.current.pause();
+    }
+    const audio = new Audio(src);
+    chatAudioElRef.current = audio;
+    setActivePlayingVoiceId(msgId);
+    audio.ontimeupdate = () => {
+      const pct = audio.duration && isFinite(audio.duration) ? Math.min(1, audio.currentTime / audio.duration) : Math.min(1, audio.currentTime / Math.max(1, durationSec));
+      setVoiceProgressMap((prev) => ({ ...prev, [msgId]: pct }));
+    };
+    audio.onended = () => {
+      setActivePlayingVoiceId((cur) => (cur === msgId ? null : cur));
+      setVoiceProgressMap((prev) => ({ ...prev, [msgId]: 0 }));
+    };
+    void audio.play().catch(() => {
+      setActivePlayingVoiceId((cur) => (cur === msgId ? null : cur));
+    });
   };
   const [pendingImage, setPendingImage] = useState<{ file: File; previewUrl: string; name: string } | null>(null);
   const pendingImageRef = useRef<{ file: File; previewUrl: string; name: string } | null>(null);
@@ -1167,17 +1222,22 @@ export default function SocialChatModal({
       return;
     }
     const activePendingImage = pendingImageRef.current;
+    const activePendingAudio = pendingAudioRef.current;
     if (
       sendingMessageRef.current ||
       uploadingImageRef.current ||
       !session ||
       (!selectedProfile && !selectedGroup) ||
-      (!messageDraft.trim() && !activePendingImage) ||
+      (!messageDraft.trim() && !activePendingImage && !activePendingAudio) ||
       (selectedProfile && blockedIds.includes(selectedProfile.id))
     ) return;
     sendingMessageRef.current = true;
     setSendingMessage(true);
-    const body = activePendingImage ? (messageDraft.trim() || "Bild") : messageDraft.trim();
+    const body = activePendingAudio
+      ? `[voice:${activePendingAudio.durationSec}:${activePendingAudio.previewUrl}]`
+      : activePendingImage
+        ? (messageDraft.trim() || "Bild")
+        : messageDraft.trim();
     const replyToMessageId = replyingTo?.id ?? null;
     const replySnapshot = replyingTo;
     const optimisticMessage: ChatMessage = {
@@ -1200,7 +1260,14 @@ export default function SocialChatModal({
     };
     visibleMessageIdsRef.current.add(optimisticMessage.id);
     setMessages((previous) => [...previous, optimisticMessage]);
-    setMessageDraft('');
+    setMessageDraft("");
+    if (activePendingAudio) {
+      if (pendingAudioElRef.current) {
+        pendingAudioElRef.current.pause();
+        setPlayingPendingAudio(false);
+      }
+      setPendingAudio(null);
+    }
     setReplyingTo(null);
     setStatus('Nachricht wird gesendet …');
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
@@ -1223,6 +1290,17 @@ export default function SocialChatModal({
         if (uploadError) throw uploadError;
         objectUploaded = true;
         messageToInsert = { ...message, body, image_path: uploadedPath };
+      } else if (activePendingAudio) {
+        const ext = activePendingAudio.mimeType.includes("ogg") ? "ogg" : activePendingAudio.mimeType.includes("mp4") ? "m4a" : "webm";
+        const token = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        const audioStoragePath = `voice/${session.user.id}/${token}.${ext}`;
+        const { error: audioUploadError } = await supabase.storage.from(CHAT_IMAGES_BUCKET).upload(audioStoragePath, activePendingAudio.blob, {
+          cacheControl: "3600", contentType: activePendingAudio.mimeType || "audio/webm", upsert: false,
+        });
+        const persistedBody = audioUploadError
+          ? `[voice:${activePendingAudio.durationSec}:${activePendingAudio.previewUrl}]`
+          : `[voice:${activePendingAudio.durationSec}:${audioStoragePath}]`;
+        messageToInsert = { ...message, body: persistedBody };
       }
       const { data, error } = await supabase
         .from('messages')
@@ -2566,7 +2644,41 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                               </View>
                             )}
                             {!(message.image_path && message.body === 'Bild') && (
-                              <Text style={styles.messageText}>{message.body}</Text>
+                              <Text style={styles.messageText}>{(() => {
+                                const voiceData = parseVoiceBody(message.body);
+                                if (!voiceData) return message.body;
+                                const isPlayingThis = activePlayingVoiceId === message.id;
+                                const progress = voiceProgressMap[message.id] ?? 0;
+                                return (
+                                  <TouchableOpacity
+                                    onPress={() => toggleChatVoicePlayback(message.id, voiceData.src, voiceData.durationSec)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={isPlayingThis ? "Sprachnachricht stoppen" : "Sprachnachricht abspielen"}
+                                    style={{
+                                      flexDirection: "row",
+                                      alignItems: "center",
+                                      gap: 10,
+                                      paddingVertical: 6,
+                                      paddingHorizontal: 10,
+                                      borderRadius: 999,
+                                      backgroundColor: own ? "rgba(255, 255, 255, 0.14)" : "rgba(253, 164, 175, 0.12)",
+                                      borderWidth: 1,
+                                      borderColor: own ? "rgba(255, 255, 255, 0.24)" : "rgba(253, 164, 175, 0.28)",
+                                      minWidth: 168,
+                                    }}
+                                  >
+                                    <Text style={{ color: "#FFF1F2", fontWeight: "700", fontSize: 13 }}>
+                                      {isPlayingThis ? "⏹" : "▶"}
+                                    </Text>
+                                    <View style={{ flex: 1, height: 3, borderRadius: 999, backgroundColor: "rgba(253, 164, 175, 0.25)", overflow: "hidden" }}>
+                                      <View style={{ width: `${Math.round(progress * 100)}%`, height: "100%", backgroundColor: own ? "#FFF1F2" : "#FDA4AF" }} />
+                                    </View>
+                                    <Text style={{ color: "#FFE4E6", fontSize: 12, fontWeight: "600" }}>
+                                      {formatVoiceTime(voiceData.durationSec)}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })()}</Text>
                             )}
                             <View style={styles.reactionRow}>
                               {REACTION_OPTIONS.map((emoji) => {
@@ -2770,19 +2882,30 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                         </View>
                       )}
                       {pendingAudio && (
-                        <View style={styles.pendingImageBar}>
-                          <Text style={styles.pendingImageTitle} numberOfLines={1}>
-                            Sprachnachricht ({pendingAudio.durationSec}s)
-                          </Text>
+                        <View style={[styles.pendingImageBar, { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16 }]}>
+                          <TouchableOpacity
+                            onPress={clearPendingAudio}
+                            accessibilityRole="button"
+                            accessibilityLabel="Sprachnachricht verwerfen"
+                            style={{ width: 28, height: 28, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(18, 18, 21, 0.9)", borderWidth: 1, borderColor: "rgba(253, 164, 175, 0.28)" }}
+                          >
+                            <Text style={{ color: "#FDA4AF", fontWeight: "700", fontSize: 12 }}>✕</Text>
+                          </TouchableOpacity>
                           {Platform.OS === "web" && (
                             <TouchableOpacity
-                              style={styles.secondary}
                               onPress={togglePendingAudioPlayback}
                               accessibilityRole="button"
                               accessibilityLabel={playingPendingAudio ? "Sprachnachricht stoppen" : "Sprachnachricht abspielen"}
+                              style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, backgroundColor: "rgba(18, 18, 21, 0.9)", borderWidth: 1, borderColor: "rgba(253, 164, 175, 0.32)" }}
                             >
-                              <Text style={styles.messageAction}>
-                                {playingPendingAudio ? "⏹ Stopp" : "▶ Abspielen"}
+                              <Text style={{ color: "#FFF1F2", fontWeight: "700", fontSize: 12 }}>
+                                {playingPendingAudio ? "⏹" : "▶"}
+                              </Text>
+                              <View style={{ flex: 1, height: 3, borderRadius: 999, backgroundColor: "rgba(253, 164, 175, 0.24)" }}>
+                                <View style={{ width: playingPendingAudio ? "100%" : "35%", height: "100%", backgroundColor: "#FDA4AF" }} />
+                              </View>
+                              <Text style={{ color: "#FFE4E6", fontSize: 12, fontWeight: "600" }}>
+                                {formatVoiceTime(pendingAudio.durationSec)}
                               </Text>
                             </TouchableOpacity>
                           )}
@@ -2799,10 +2922,7 @@ const deleteOwnMessage = async (message: ChatMessage) => {
                             accessibilityRole="button"
                             accessibilityLabel="Sprachnachricht neu aufnehmen"
                           >
-                            <Text style={styles.messageAction}>Neu aufnehmen</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={clearPendingAudio} accessibilityRole="button" accessibilityLabel="Sprachnachricht verwerfen">
-                            <Text style={styles.messageAction}>Verwerfen</Text>
+                            <Text style={styles.messageAction}>Neu</Text>
                           </TouchableOpacity>
                         </View>
                       )}
