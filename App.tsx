@@ -2213,8 +2213,7 @@ export default function App() {
           )}
 
           {tab === 'Redaktion' && (
-              <ReportsCommunityPanel />
-            !loggedIn ? (
+            <>
               <View style={styles.cmsLocked}>
                 <Text style={styles.sectionTitle}>Redaktion anmelden</Text>
                 <Text style={styles.bodyText}>Wählen Sie eine Rolle für den Investor-/Demo-Zugriff.</Text>
