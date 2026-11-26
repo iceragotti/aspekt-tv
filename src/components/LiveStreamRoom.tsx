@@ -75,7 +75,18 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   const [pinnedBanner, setPinnedBanner] = useState<string>("Willkommen im ASPEKT.TV Live-Chat – stellt eure Fragen direkt in die Runde.");
   const [editingPin, setEditingPin] = useState<boolean>(false);
 
-  const [splitDesktop, setSplitDesktop] = useState<boolean>(false);
+  const [splitDesktop, setSplitDesktop] = useState<boolean>(true);
+  const [sessionChapter, setSessionChapter] = useState<string>("Opening · Lage");
+  const [ageNotice, setAgeNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (ageMode === "U18" && selectedRoomId === "adult-18-live") {
+      setSelectedRoomId("main-live");
+    }
+    if (ageMode === "18+") {
+      setAgeNotice(null);
+    }
+  }, [ageMode, selectedRoomId]);
   const { width: winWidth } = useWindowDimensions();
   const isWideSplit = splitDesktop && Platform.OS === "web" && winWidth >= 1024;  const chatScrollRef = useRef<any>(null);  const [messagesByRoom, setMessagesByRoom] = useState<Record<"main-live" | "adult-18-live", LiveChatMessage[]>>({
     "main-live": [
@@ -206,7 +217,17 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
             return (
               <TouchableOpacity
                 key={room.id}
-                onPress={() => setSelectedRoomId(room.id)}
+                onPress={() => {
+                  if (room.rating === "18+" && ageMode !== "18+") {
+                    if (onConfirmAge18) {
+                      onConfirmAge18();
+                    }
+                    setAgeNotice("U18-Schutz aktiv: Bitte oben zuerst auf 18+ umschalten, um die Night Session zu öffnen.");
+                    return;
+                  }
+                  setAgeNotice(null);
+                  setSelectedRoomId(room.id);
+                }}
                 style={{
                   paddingVertical: 8,
                   paddingHorizontal: 14,
@@ -222,6 +243,78 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
               </TouchableOpacity>
             );
           })}
+          {ageNotice && (
+            <View
+              style={{
+                width: "100%",
+                marginTop: 6,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 12,
+                backgroundColor: "rgba(244, 63, 94, 0.14)",
+                borderWidth: 1,
+                borderColor: "rgba(244, 63, 94, 0.45)",
+              }}
+            >
+              <Text style={{ color: aspectTheme.colors.textPrimary, fontSize: 12, fontWeight: "600" }}>
+                {ageNotice}
+              </Text>
+            </View>
+          )}
+          <View
+            style={{
+              width: "100%",
+              flexDirection: "row",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 8,
+              marginTop: 6,
+            }}
+          >
+            <Text
+              style={{
+                color: aspectTheme.colors.textMuted,
+                fontSize: 11,
+                fontWeight: "800",
+                letterSpacing: 0.5,
+              }}
+            >
+              SENDUNGS-BLOCK:
+            </Text>
+            {["Opening · Lage", "Community-Runde", "Track / Release", "Outro"].map((chapter) => {
+              const activeChapter = sessionChapter === chapter;
+              return (
+                <TouchableOpacity
+                  key={chapter}
+                  onPress={() => setSessionChapter(chapter)}
+                  style={{
+                    paddingVertical: 5,
+                    paddingHorizontal: 10,
+                    borderRadius: 999,
+                    backgroundColor: activeChapter
+                      ? aspectTheme.colors.accentSoft
+                      : aspectTheme.colors.surfaceRaised,
+                    borderWidth: 1,
+                    borderColor: activeChapter
+                      ? aspectTheme.colors.accentText
+                      : aspectTheme.colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: activeChapter
+                        ? aspectTheme.colors.accentText
+                        : aspectTheme.colors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {chapter}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
 
         <TouchableOpacity
