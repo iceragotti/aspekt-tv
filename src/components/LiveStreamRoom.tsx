@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform } from "react-native";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  useWindowDimensions,
+} from "react-native";
 import { aspectTheme } from "../aspectTheme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { VerifiedBadge } from "./VerifiedBadge";
@@ -63,7 +71,10 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   const [chatInput, setChatInput] = useState<string>("");
 
   const [liquidMode, setLiquidMode] = useState<boolean>(true);
-  const chatScrollRef = useRef<ScrollView | null>(null);  const [messagesByRoom, setMessagesByRoom] = useState<Record<"main-live" | "adult-18-live", LiveChatMessage[]>>({
+
+  const [splitDesktop, setSplitDesktop] = useState<boolean>(false);
+  const { width: winWidth } = useWindowDimensions();
+  const isWideSplit = splitDesktop && Platform.OS === "web" && winWidth >= 1024;  const chatScrollRef = useRef<ScrollView | null>(null);  const [messagesByRoom, setMessagesByRoom] = useState<Record<"main-live" | "adult-18-live", LiveChatMessage[]>>({
     "main-live": [
       {
         id: "init-1",
@@ -295,22 +306,24 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
             <View
               style={[
                 {
-                  padding: 12,
-                  borderRadius: liquidMode ? 22 : 14,
+                  padding: 14,
+                  borderRadius: liquidMode ? 24 : 14,
                   gap: 10,
                   backgroundColor: liquidMode
-                    ? "rgba(255, 255, 255, 0.05)"
+                    ? "rgba(255, 255, 255, 0.06)"
                     : aspectTheme.colors.surface,
                   borderWidth: 1,
                   borderColor: liquidMode
-                    ? "rgba(255, 255, 255, 0.14)"
+                    ? "rgba(255, 255, 255, 0.18)"
                     : aspectTheme.colors.border,
                 },
                 Platform.OS === "web" && liquidMode
                   ? ({
-                      backdropFilter: "blur(18px) saturate(150%)",
-                      WebkitBackdropFilter: "blur(18px) saturate(150%)",
-                      boxShadow: "0 12px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.16)",
+                      backdropFilter: "blur(20px) saturate(160%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(160%)",
+                      boxShadow:
+                        "0 14px 36px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.2)",
+                      transition: "all 180ms ease",
                     } as any)
                   : null,
               ]}
@@ -324,8 +337,14 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   flexWrap: "wrap",
                 }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 14 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.textPrimary,
+                      fontWeight: "800",
+                      fontSize: 14,
+                    }}
+                  >
                     Echtzeit-Stream-Chat ({currentMessages.length})
                   </Text>
                   <View
@@ -334,7 +353,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       paddingHorizontal: 8,
                       borderRadius: 999,
                       backgroundColor: isLive
-                        ? "rgba(232, 23, 93, 0.18)"
+                        ? "rgba(232, 23, 93, 0.2)"
                         : aspectTheme.colors.surfaceRaised,
                       borderWidth: 1,
                       borderColor: isLive
@@ -356,72 +375,124 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   </View>
                 </View>
 
-                <TouchableOpacity
-                  onPress={() => setLiquidMode((prev) => !prev)}
-                  style={[
-                    {
-                      paddingVertical: 5,
-                      paddingHorizontal: 11,
-                      borderRadius: 999,
-                      backgroundColor: liquidMode
-                        ? "rgba(255, 255, 255, 0.12)"
-                        : aspectTheme.colors.surfaceRaised,
-                      borderWidth: 1,
-                      borderColor: liquidMode
-                        ? "rgba(255, 255, 255, 0.28)"
-                        : aspectTheme.colors.border,
-                    },
-                    Platform.OS === "web" && liquidMode
-                      ? ({
-                          backdropFilter: "blur(12px)",
-                          WebkitBackdropFilter: "blur(12px)",
-                        } as any)
-                      : null,
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: liquidMode
-                        ? aspectTheme.colors.textPrimary
-                        : aspectTheme.colors.textSecondary,
-                      fontSize: 11,
-                      fontWeight: "700",
-                    }}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {Platform.OS === "web" && winWidth >= 1024 && (
+                    <TouchableOpacity
+                      onPress={() => setSplitDesktop((prev) => !prev)}
+                      style={{
+                        paddingVertical: 5,
+                        paddingHorizontal: 10,
+                        borderRadius: 999,
+                        backgroundColor: splitDesktop
+                          ? "rgba(255, 255, 255, 0.14)"
+                          : aspectTheme.colors.surfaceRaised,
+                        borderWidth: 1,
+                        borderColor: splitDesktop
+                          ? "rgba(255, 255, 255, 0.3)"
+                          : aspectTheme.colors.border,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: splitDesktop
+                            ? aspectTheme.colors.textPrimary
+                            : aspectTheme.colors.textSecondary,
+                          fontSize: 11,
+                          fontWeight: "700",
+                        }}
+                      >
+                        {splitDesktop ? "Split: AN" : "Split: AUS"}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    onPress={() => setLiquidMode((prev) => !prev)}
+                    style={[
+                      {
+                        paddingVertical: 5,
+                        paddingHorizontal: 11,
+                        borderRadius: 999,
+                        backgroundColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.14)"
+                          : aspectTheme.colors.surfaceRaised,
+                        borderWidth: 1,
+                        borderColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.32)"
+                          : aspectTheme.colors.border,
+                      },
+                      Platform.OS === "web" && liquidMode
+                        ? ({
+                            backdropFilter: "blur(12px)",
+                            WebkitBackdropFilter: "blur(12px)",
+                          } as any)
+                        : null,
+                    ]}
                   >
-                    {liquidMode ? "Liquid Modus: AN" : "Liquid Modus: AUS"}
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={{
+                        color: liquidMode
+                          ? aspectTheme.colors.textPrimary
+                          : aspectTheme.colors.textSecondary,
+                        fontSize: 11,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {liquidMode ? "Liquid Modus: AN" : "Liquid Modus: AUS"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
 
-              <TextInput
-                value={senderName}
-                onChangeText={setSenderName}
-                placeholder="Dein Anzeigename im Chat..."
-                placeholderTextColor={aspectTheme.colors.textMuted}
-                style={[
-                  {
-                    paddingVertical: 7,
-                    paddingHorizontal: 14,
-                    borderRadius: liquidMode ? 999 : 10,
-                    color: aspectTheme.colors.textPrimary,
-                    backgroundColor: liquidMode
-                      ? "rgba(255, 255, 255, 0.06)"
-                      : aspectTheme.colors.surfaceRaised,
-                    borderWidth: 1,
-                    borderColor: liquidMode
-                      ? "rgba(255, 255, 255, 0.14)"
-                      : aspectTheme.colors.border,
-                    fontSize: 12,
-                  },
-                  Platform.OS === "web" && liquidMode
-                    ? ({ backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" } as any)
-                    : null,
-                ]}
-              />
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
+                  <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "700" }}>
+                    Als:
+                  </Text>
+                  <TextInput
+                    value={senderName}
+                    onChangeText={setSenderName}
+                    placeholder="Anzeigename..."
+                    placeholderTextColor={aspectTheme.colors.textMuted}
+                    style={[
+                      {
+                        flex: 1,
+                        maxWidth: 220,
+                        paddingVertical: 5,
+                        paddingHorizontal: 12,
+                        borderRadius: 999,
+                        color: aspectTheme.colors.textPrimary,
+                        backgroundColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.07)"
+                          : aspectTheme.colors.surfaceRaised,
+                        borderWidth: 1,
+                        borderColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.16)"
+                          : aspectTheme.colors.border,
+                        fontSize: 12,
+                      },
+                      Platform.OS === "web" && liquidMode
+                        ? ({ backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)" } as any)
+                        : null,
+                    ]}
+                  />
+                </View>
+                <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
+                  {hostMode ? "Host-Moderations-Ansicht aktiv" : "Zuschauer-Ansicht"}
+                </Text>
+              </View>
 
               <ScrollView
                 ref={chatScrollRef}
-                style={{ maxHeight: 280 }}
+                style={{ maxHeight: isWideSplit ? 420 : 280 }}
                 contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
                 onContentSizeChange={() =>
                   chatScrollRef.current?.scrollToEnd({ animated: liquidMode })
@@ -435,19 +506,20 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                         padding: 11,
                         borderRadius: liquidMode ? 18 : 12,
                         backgroundColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.07)"
+                          ? "rgba(255, 255, 255, 0.08)"
                           : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
                         borderColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.16)"
+                          ? "rgba(255, 255, 255, 0.18)"
                           : aspectTheme.colors.border,
                         gap: 4,
                       },
                       Platform.OS === "web" && liquidMode
                         ? ({
-                            backdropFilter: "blur(14px) saturate(140%)",
-                            WebkitBackdropFilter: "blur(14px) saturate(140%)",
-                            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.14)",
+                            backdropFilter: "blur(16px) saturate(150%)",
+                            WebkitBackdropFilter: "blur(16px) saturate(150%)",
+                            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.18)",
+                            transition: "all 160ms ease",
                           } as any)
                         : null,
                     ]}
@@ -534,11 +606,11 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       borderRadius: 999,
                       color: aspectTheme.colors.textPrimary,
                       backgroundColor: liquidMode
-                        ? "rgba(255, 255, 255, 0.08)"
+                        ? "rgba(255, 255, 255, 0.09)"
                         : aspectTheme.colors.surfaceRaised,
                       borderWidth: 1,
                       borderColor: liquidMode
-                        ? "rgba(255, 255, 255, 0.18)"
+                        ? "rgba(255, 255, 255, 0.2)"
                         : aspectTheme.colors.border,
                       fontSize: 13,
                     },
@@ -558,7 +630,8 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     },
                     Platform.OS === "web" && liquidMode
                       ? ({
-                          boxShadow: "0 6px 20px rgba(232, 23, 93, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25)",
+                          boxShadow:
+                            "0 8px 24px rgba(232, 23, 93, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.28)",
                         } as any)
                       : null,
                   ]}
