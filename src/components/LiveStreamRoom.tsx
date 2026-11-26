@@ -4,6 +4,7 @@ import { aspectTheme } from "../aspectTheme";
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 import { VerifiedBadge } from "./VerifiedBadge";
 import { HostCameraStage } from "./HostCameraStage";
+import { LiveUrlPlayerStage } from "./LiveUrlPlayerStage";
 
 export interface LiveStreamRoomProps {
   ageMode: "U18" | "18+";
