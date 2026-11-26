@@ -26,7 +26,7 @@ type PulseReaction = '❤️' | '😂' | '👍' | '😮';
 type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
-type SupportTab = 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
+type SupportTab = 'News' | 'Live TV' | 'Live-Streaming' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
 type DirectChannelKey = 'telegram' | 'x' | 'press';
 type DirectChannelLinks = Record<DirectChannelKey, string>;
 
@@ -1166,7 +1166,7 @@ export default function App() {
         </View>
 
         <View style={styles.tabRow}>
-          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
+          {(['News', 'Live TV', 'Live-Streaming', 'ASPEKT PULSE', 'Shorts', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
             <TouchableOpacity
               key={item}
               style={[styles.tabButton, tab === item && styles.tabButtonActive]}
@@ -1247,6 +1247,10 @@ export default function App() {
                 <Text style={styles.debateMeta}>Heute · 18:00 Uhr · Moderiert von Julia Kern</Text>
               </View>
             </>
+          )}
+
+          {tab === 'Live-Streaming' && (
+            <LiveStreamRoom />
           )}
 
           {tab === 'Live TV' && (

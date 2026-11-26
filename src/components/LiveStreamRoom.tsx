@@ -74,7 +74,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
 
   const [splitDesktop, setSplitDesktop] = useState<boolean>(false);
   const { width: winWidth } = useWindowDimensions();
-  const isWideSplit = splitDesktop && Platform.OS === "web" && winWidth >= 1024;  const chatScrollRef = useRef<ScrollView | null>(null);  const [messagesByRoom, setMessagesByRoom] = useState<Record<"main-live" | "adult-18-live", LiveChatMessage[]>>({
+  const isWideSplit = splitDesktop && Platform.OS === "web" && winWidth >= 1024;  const chatScrollRef = useRef<any>(null);  const [messagesByRoom, setMessagesByRoom] = useState<Record<"main-live" | "adult-18-live", LiveChatMessage[]>>({
     "main-live": [
       {
         id: "init-1",
