@@ -11,12 +11,12 @@ interface LiveUrlPlayerStageProps {
 
 const DEMO_STREAMS = [
   {
-    label: "Test-Stream 1 (HLS)",
-    url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+    label: "Test-Stream MP4 (Big Buck Bunny)",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
   },
   {
-    label: "Test-Stream 2 (HLS)",
-    url: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8",
+    label: "Test-Stream MP4 (Elephants Dream)",
+    url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
   },
 ];
 
@@ -36,48 +36,19 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
       return;
     }
 
-    let hlsInstance: { destroy: () => void } | null = null;
-    let cancelled = false;
-    setPlayerNote(null);
-
     const videoEl = videoRef.current;
     if (!videoEl) return;
 
-    const isHls = /\.m3u8(\?|$)/i.test(cleanUrl);
+    setPlayerNote(null);
+    const isHls = /.m3u8(\?|$)/i.test(cleanUrl);
 
     if (isHls && !videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-      import("hls.js")
-        .then(({ default: Hls }) => {
-          if (cancelled || !videoRef.current) return;
-          if (Hls.isSupported()) {
-            const hls = new Hls({ enableWorker: true });
-            hls.loadSource(cleanUrl);
-            hls.attachMedia(videoRef.current);
-            hls.on(Hls.Events.ERROR, (_ev, data) => {
-              if (data.fatal && !cancelled) {
-                setPlayerNote("HLS-Stream konnte nicht geladen werden (URL/CORS prüfen oder Preset wählen).");
-              }
-            });
-            hlsInstance = hls;
-          } else {
-            setPlayerNote("HLS wird in diesem Browser nicht direkt unterstützt.");
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setPlayerNote("hls.js nicht installiert – native Wiedergabe wird versucht.");
-          }
-        });
-    } else {
-      videoEl.src = cleanUrl;
+      setPlayerNote("Hinweis: .m3u8 erfordert in diesem Browser hls.js oder Safari – wähle ein MP4-Preset oder eine direkte Video-URL.");
+      return;
     }
 
-    return () => {
-      cancelled = true;
-      if (hlsInstance) {
-        hlsInstance.destroy();
-      }
-    };
+    videoEl.src = cleanUrl;
+    videoEl.load();
   }, [cleanUrl, isLive, disabled]);
 
   return (
