@@ -71,8 +71,6 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   const [chatInput, setChatInput] = useState<string>("");
 
   const [liquidMode, setLiquidMode] = useState<boolean>(true);
-  const [pinnedBanner, setPinnedBanner] = useState<string>("Willkommen im ASPEKT.TV Live-Chat – stellt eure Fragen direkt in die Runde.");
-  const [editingPin, setEditingPin] = useState<boolean>(false);
 
   const [splitDesktop, setSplitDesktop] = useState<boolean>(false);
   const { width: winWidth } = useWindowDimensions();
@@ -254,9 +252,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
         <Text style={{ color: aspectTheme.colors.textSecondary, fontSize: 13 }}>{activeRoom.description}</Text>
 
         {!isAdultLocked && (
-          <View style={{ flexDirection: isWideSplit ? "row" : "column", alignItems: "flex-start", gap: 14, width: "100%" }}>
-              <View style={{ flex: isWideSplit ? 1.35 : undefined, width: isWideSplit ? undefined : "100%", gap: 12 }}>
-<View style={{ gap: 12 }}>
+          <View style={{ gap: 12 }}>
             <HostCameraStage disabled={isAdultLocked} />
             <LiveUrlPlayerStage url={streamUrls[activeRoom.id]} isLive={isLive} disabled={isAdultLocked} onSelectPresetUrl={(nextUrl) => setStreamUrls((prev) => ({ ...prev, [activeRoom.id]: nextUrl }))} />
           </View>
@@ -341,45 +337,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   flexWrap: "wrap",
                 }}
               >
-                <View
-              style={[
-                {
-                  flex: isWideSplit ? 0.85 : undefined,
-                  minWidth: isWideSplit ? 360 : undefined,
-                  padding: 15,
-                  borderRadius: liquidMode ? 24 : 14,
-                  gap: 11,
-                  backgroundColor: liquidMode
-                    ? "rgba(255, 255, 255, 0.065)"
-                    : aspectTheme.colors.surface,
-                  borderWidth: 1,
-                  borderColor: liquidMode
-                    ? "rgba(255, 255, 255, 0.19)"
-                    : aspectTheme.colors.border,
-                },
-                Platform.OS === "web" && liquidMode
-                  ? ({
-                      backdropFilter: "blur(20px) saturate(165%)",
-                      WebkitBackdropFilter: "blur(20px) saturate(165%)",
-                      boxShadow:
-                        "0 16px 40px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.22)",
-                      transition: "all 180ms ease",
-                    } as any)
-                  : null,
-              ]}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                
-              </View>
-<View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <Text
                     style={{
                       color: aspectTheme.colors.textPrimary,
@@ -395,7 +353,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       paddingHorizontal: 8,
                       borderRadius: 999,
                       backgroundColor: isLive
-                        ? "rgba(232, 23, 93, 0.22)"
+                        ? "rgba(232, 23, 93, 0.2)"
                         : aspectTheme.colors.surfaceRaised,
                       borderWidth: 1,
                       borderColor: isLive
@@ -423,15 +381,15 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       onPress={() => setSplitDesktop((prev) => !prev)}
                       style={{
                         paddingVertical: 5,
-                        paddingHorizontal: 11,
+                        paddingHorizontal: 10,
                         borderRadius: 999,
                         backgroundColor: splitDesktop
-                          ? "rgba(255, 255, 255, 0.16)"
-                          : "rgba(255, 255, 255, 0.08)",
+                          ? "rgba(255, 255, 255, 0.14)"
+                          : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
                         borderColor: splitDesktop
-                          ? "rgba(255, 255, 255, 0.34)"
-                          : "rgba(255, 255, 255, 0.16)",
+                          ? "rgba(255, 255, 255, 0.3)"
+                          : aspectTheme.colors.border,
                       }}
                     >
                       <Text
@@ -453,14 +411,14 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     style={[
                       {
                         paddingVertical: 5,
-                        paddingHorizontal: 12,
+                        paddingHorizontal: 11,
                         borderRadius: 999,
                         backgroundColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.15)"
+                          ? "rgba(255, 255, 255, 0.14)"
                           : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
                         borderColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.34)"
+                          ? "rgba(255, 255, 255, 0.32)"
                           : aspectTheme.colors.border,
                       },
                       Platform.OS === "web" && liquidMode
@@ -486,103 +444,16 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                 </View>
               </View>
 
-              {pinnedBanner.trim().length > 0 && (
-                <View
-                  style={[
-                    {
-                      width: "100%",
-                      paddingVertical: 9,
-                      paddingHorizontal: 13,
-                      borderRadius: liquidMode ? 16 : 10,
-                      backgroundColor: liquidMode
-                        ? "rgba(232, 23, 93, 0.14)"
-                        : aspectTheme.colors.surfaceRaised,
-                      borderWidth: 1,
-                      borderColor: liquidMode
-                        ? "rgba(232, 23, 93, 0.38)"
-                        : aspectTheme.colors.border,
-                      gap: 5,
-                    },
-                    Platform.OS === "web" && liquidMode
-                      ? ({ backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" } as any)
-                      : null,
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 8,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: aspectTheme.colors.accentText,
-                        fontSize: 10,
-                        fontWeight: "800",
-                        letterSpacing: 0.4,
-                      }}
-                    >
-                      ANGEPINNT · THEMA DER RUNDE
-                    </Text>
-                    {hostMode && (
-                      <TouchableOpacity onPress={() => setEditingPin((prev) => !prev)}>
-                        <Text
-                          style={{
-                            color: aspectTheme.colors.textPrimary,
-                            fontSize: 11,
-                            fontWeight: "700",
-                          }}
-                        >
-                          {editingPin ? "Fertig" : "Bearbeiten"}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {editingPin && hostMode ? (
-                    <TextInput
-                      value={pinnedBanner}
-                      onChangeText={setPinnedBanner}
-                      placeholder="Angepinntes Thema eingeben..."
-                      placeholderTextColor={aspectTheme.colors.textMuted}
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 10,
-                        borderRadius: 10,
-                        color: aspectTheme.colors.textPrimary,
-                        backgroundColor: "rgba(0, 0, 0, 0.28)",
-                        borderWidth: 1,
-                        borderColor: "rgba(255, 255, 255, 0.2)",
-                        fontSize: 12,
-                      }}
-                    />
-                  ) : (
-                    <Text
-                      style={{
-                        color: aspectTheme.colors.textPrimary,
-                        fontSize: 12,
-                        fontWeight: "600",
-                        lineHeight: 17,
-                      }}
-                    >
-                      {pinnedBanner}
-                    </Text>
-                  )}
-                </View>
-              )}
-
               <View
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  gap: 10,
+                  gap: 8,
                   flexWrap: "wrap",
                 }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 7, flex: 1, minWidth: 190 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1, minWidth: 180 }}>
                   <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "700" }}>
                     Als:
                   </Text>
@@ -594,17 +465,17 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     style={[
                       {
                         flex: 1,
-                        maxWidth: 230,
-                        paddingVertical: 6,
-                        paddingHorizontal: 13,
+                        maxWidth: 220,
+                        paddingVertical: 5,
+                        paddingHorizontal: 12,
                         borderRadius: 999,
                         color: aspectTheme.colors.textPrimary,
                         backgroundColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.09)"
+                          ? "rgba(255, 255, 255, 0.07)"
                           : aspectTheme.colors.surfaceRaised,
                         borderWidth: 1,
                         borderColor: liquidMode
-                          ? "rgba(255, 255, 255, 0.2)"
+                          ? "rgba(255, 255, 255, 0.16)"
                           : aspectTheme.colors.border,
                         fontSize: 12,
                       },
@@ -614,7 +485,6 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     ]}
                   />
                 </View>
-
                 <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
                   {hostMode ? "Host-Moderations-Ansicht aktiv" : "Zuschauer-Ansicht"}
                 </Text>
@@ -622,109 +492,75 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
 
               <ScrollView
                 ref={chatScrollRef}
-                style={{ maxHeight: isWideSplit ? 520 : 280 }}
+                style={{ maxHeight: isWideSplit ? 420 : 280 }}
                 contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
                 onContentSizeChange={() =>
                   chatScrollRef.current?.scrollToEnd({ animated: liquidMode })
                 }
               >
-                {currentMessages.map((msg) => {
-                  const isHostAuthor =
-                    msg.author.toLowerCase().includes("aspekt") ||
-                    msg.author.toLowerCase().includes("ragotti");
-                  return (
+                {currentMessages.map((msg) => (
+                  <View
+                    key={msg.id}
+                    style={[
+                      {
+                        padding: 11,
+                        borderRadius: liquidMode ? 18 : 12,
+                        backgroundColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.08)"
+                          : aspectTheme.colors.surfaceRaised,
+                        borderWidth: 1,
+                        borderColor: liquidMode
+                          ? "rgba(255, 255, 255, 0.18)"
+                          : aspectTheme.colors.border,
+                        gap: 4,
+                      },
+                      Platform.OS === "web" && liquidMode
+                        ? ({
+                            backdropFilter: "blur(16px) saturate(150%)",
+                            WebkitBackdropFilter: "blur(16px) saturate(150%)",
+                            boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.18)",
+                            transition: "all 160ms ease",
+                          } as any)
+                        : null,
+                    ]}
+                  >
                     <View
-                      key={msg.id}
-                      style={[
-                        {
-                          paddingVertical: 10,
-                          paddingHorizontal: 13,
-                          borderRadius: liquidMode ? 17 : 12,
-                          backgroundColor: isHostAuthor
-                            ? liquidMode
-                              ? "rgba(232, 23, 93, 0.11)"
-                              : aspectTheme.colors.surfaceRaised
-                            : liquidMode
-                              ? "rgba(255, 255, 255, 0.08)"
-                              : aspectTheme.colors.surfaceRaised,
-                          borderWidth: 1,
-                          borderColor: isHostAuthor
-                            ? "rgba(232, 23, 93, 0.3)"
-                            : liquidMode
-                              ? "rgba(255, 255, 255, 0.18)"
-                              : aspectTheme.colors.border,
-                          gap: 4,
-                        },
-                        Platform.OS === "web" && liquidMode
-                          ? ({
-                              backdropFilter: "blur(16px) saturate(150%)",
-                              WebkitBackdropFilter: "blur(16px) saturate(150%)",
-                              boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.18)",
-                            } as any)
-                          : null,
-                      ]}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        flexWrap: "wrap",
+                      }}
                     >
                       <View
                         style={{
                           flexDirection: "row",
                           alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
+                          gap: 6,
                           flexWrap: "wrap",
                         }}
                       >
-                        <View
+                        <Text
                           style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 6,
-                            flexWrap: "wrap",
+                            color: aspectTheme.colors.textPrimary,
+                            fontWeight: "700",
+                            fontSize: 12,
                           }}
                         >
-                          <Text
-                            style={{
-                              color: isHostAuthor
-                                ? aspectTheme.colors.accentText
-                                : aspectTheme.colors.textPrimary,
-                              fontWeight: "800",
-                              fontSize: 12,
-                            }}
-                          >
-                            {msg.author}
-                          </Text>
-                          {isHostAuthor && (
-                            <View
-                              style={{
-                                paddingVertical: 1,
-                                paddingHorizontal: 6,
-                                borderRadius: 999,
-                                backgroundColor: "rgba(232, 23, 93, 0.22)",
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  color: aspectTheme.colors.accentText,
-                                  fontSize: 9,
-                                  fontWeight: "800",
-                                }}
-                              >
-                                HOST
-                              </Text>
-                            </View>
-                          )}
-                          <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
-                            {msg.handle}
-                          </Text>
-                          {msg.verified && <VerifiedBadge label="Verifiziert" compact />}
-                        </View>
-
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 10 }}>
-                            {msg.sentAt}
-                          </Text>
-                          {hostMode && (
-                            <>
-                              <TouchableOpacity
+                          {msg.author}
+                        </Text>
+                        <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
+                          {msg.handle}
+                        </Text>
+                        {msg.verified && <VerifiedBadge label="Verifiziert" compact />}
+                      </View>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11 }}>
+                          {msg.sentAt}
+                        </Text>
+                        {hostMode && (
+                          <TouchableOpacity
                                 onPress={() =>
                                   setPinnedBanner(`${msg.author}: ${msg.text}`)
                                 }
@@ -740,83 +576,35 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                                 </Text>
                               </TouchableOpacity>
                               <TouchableOpacity
-                                onPress={() =>
-                                  setHiddenMessageIds((prev) => [...prev, msg.id])
-                                }
-                              >
-                                <Text
-                                  style={{
-                                    color: aspectTheme.colors.accentText,
-                                    fontSize: 10,
-                                    fontWeight: "700",
-                                  }}
-                                >
-                                  Ausblenden
-                                </Text>
-                              </TouchableOpacity>
-                            </>
-                          )}
-                        </View>
+                            onPress={() =>
+                              setHiddenMessageIds((prev) => [...prev, msg.id])
+                            }
+                          >
+                            <Text
+                              style={{
+                                color: aspectTheme.colors.accentText,
+                                fontSize: 11,
+                                fontWeight: "700",
+                              }}
+                            >
+                              Ausblenden
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
-
-                      <Text
-                        style={{
-                          color: aspectTheme.colors.textSecondary,
-                          fontSize: 13,
-                          lineHeight: 18,
-                        }}
-                      >
-                        {msg.text}
-                      </Text>
                     </View>
-                  );
-                })}
-              </ScrollView>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Text style={{ color: aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "600" }}>
-                  Schnell-Reaktion:
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  {["🔥", "👏", "❓", "🎙️"].map((emoji) => (
-                    <TouchableOpacity
-                      key={emoji}
-                      onPress={() =>
-                        setChatInput((prev) => (prev ? `${prev} ${emoji}` : emoji))
-                      }
-                      style={[
-                        {
-                          paddingVertical: 5,
-                          paddingHorizontal: 10,
-                          borderRadius: 999,
-                          backgroundColor: liquidMode
-                            ? "rgba(255, 255, 255, 0.14)"
-                            : aspectTheme.colors.surfaceRaised,
-                          borderWidth: 1,
-                          borderColor: liquidMode
-                            ? "rgba(255, 255, 255, 0.28)"
-                            : aspectTheme.colors.border,
-                        },
-                        Platform.OS === "web" && liquidMode
-                          ? ({
-                              boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.22)",
-                            } as any)
-                          : null,
-                      ]}
+                    <Text
+                      style={{
+                        color: aspectTheme.colors.textSecondary,
+                        fontSize: 13,
+                        lineHeight: 18,
+                      }}
                     >
-                      <Text style={{ fontSize: 13 }}>{emoji}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+                      {msg.text}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
 
               <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <TextInput
@@ -837,7 +625,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                         : aspectTheme.colors.surfaceRaised,
                       borderWidth: 1,
                       borderColor: liquidMode
-                        ? "rgba(255, 255, 255, 0.22)"
+                        ? "rgba(255, 255, 255, 0.2)"
                         : aspectTheme.colors.border,
                       fontSize: 13,
                     },
@@ -858,7 +646,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     Platform.OS === "web" && liquidMode
                       ? ({
                           boxShadow:
-                            "0 8px 24px rgba(232, 23, 93, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.3)",
+                            "0 8px 24px rgba(232, 23, 93, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.28)",
                         } as any)
                       : null,
                   ]}
@@ -874,7 +662,6 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   </Text>
                 </TouchableOpacity>
               </View>
-            </View>
             </View>
           </>
         )}

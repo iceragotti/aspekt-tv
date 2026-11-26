@@ -1250,7 +1250,7 @@ export default function App() {
           )}
 
           {tab === 'Live-Streaming' && (
-            <LiveStreamRoom ageMode={ageMode} onConfirmAge18={() => setAgeMode('18+')} />
+            <LiveStreamRoom />
           )}
 
           {tab === 'Live TV' && (
