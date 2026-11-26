@@ -14,6 +14,7 @@ import {
 import SocialChatModal from './src/components/SocialChatModal';
 import { ConsciousFeedBar } from './src/consciousFeed';
 import { aspectTheme } from './src/aspectTheme';
+import { LiveStreamRoom } from './src/components/LiveStreamRoom';
 import { ReportsCommunityPanel } from './src/components/ReportsCommunityPanel';
 
 type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 'Reporter' | 'Creator';
@@ -1249,6 +1250,7 @@ export default function App() {
           )}
 
           {tab === 'Live TV' && (
+            <>
             <View style={styles.liveLayout}>
               <View style={styles.playerPlaceholder}>
                 <View style={styles.livePill}><Text style={styles.badgeText}>● LIVE</Text></View>
@@ -1265,6 +1267,8 @@ export default function App() {
                 ))}
               </View>
             </View>
+            <LiveStreamRoom ageMode={ageMode} onConfirmAge18={() => setAgeMode('18+')} />
+            </>
           )}
 
           {tab === 'ASPEKT PULSE' && (
