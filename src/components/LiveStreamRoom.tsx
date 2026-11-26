@@ -126,69 +126,11 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
 
     channelRef.current = channel;
 
-    return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
-    };
-  }, [activeRoom.id, isAdultLocked]);
-
-  const handleSendMessage = async () => {
-    if (isAdultLocked) return;
-    const cleanText = chatInput.trim();
-    if (!cleanText) return;
-
-    const authorClean = senderName.trim() || "Zuschauer";
-    const handleClean = "@" + (authorClean.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_|_$/g, "") || "viewer");
-    const nowLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    const newMessage: LiveChatMessage = {
-      id: "msg-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
-      roomId: activeRoom.id,
-      author: authorClean,
-      handle: handleClean,
-      verified: false,
-      text: cleanText,
-      sentAt: nowLabel,
-    };
-
-    setMessagesByRoom((prev) => ({
-      ...prev,
-      [activeRoom.id]: [...(prev[activeRoom.id] ?? []), newMessage],
-    }));
-    setChatInput("");
-
-    if (isSupabaseConfigured && channelRef.current) {
-      await channelRef.current.send({
-        type: "broadcast",
-        event: "chat_message",
-        payload: newMessage,
-      });
-    }
-  };
-
-  return (
-    <ScrollView style={{ flex: 1, backgroundColor: aspectTheme.colors.canvas }} contentContainerStyle={{ padding: 14, gap: 14 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-          <TouchableOpacity
-            onPress={() => setHostMode((prev) => !prev)}
-            style={{
-              paddingVertical: 7,
-              paddingHorizontal: 12,
-              borderRadius: 999,
-              backgroundColor: hostMode ? aspectTheme.colors.accentSoft : aspectTheme.colors.surfaceRaised,
-              borderWidth: 1,
-              borderColor: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.border,
-            }}
-          >
-            <Text style={{ color: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.textSecondary, fontWeight: "700", fontSize: 12 }}>
-              {hostMode ? "HOST-MODUS AN" : "ZUSCHAUER-MODUS"}
-            </Text>
-          </TouchableOpacity>
-            {STREAM_ROOMS.map((room) => {
-            const selected = room.id === selectedRoomId;
-            return (
-    <View style={{ gap: 16 }}>
+    return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: aspectTheme.colors.canvas }}
+      contentContainerStyle={{ padding: 14, gap: 16 }}
+    >
       <View
         style={{
           flexDirection: Platform.OS === "web" ? "row" : "column",
@@ -198,7 +140,15 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
         }}
       >
         <View style={{ flex: 1.75, minWidth: 320, gap: 12 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 8,
+            }}
+          >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <TouchableOpacity
                 onPress={() => setHostMode((prev) => !prev)}
@@ -211,7 +161,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   borderColor: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.border,
                 }}
               >
-                <Text style={{ color: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.textSecondary, fontWeight: "800", fontSize: 11 }}>
+                <Text
+                  style={{
+                    color: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.textSecondary,
+                    fontWeight: "800",
+                    fontSize: 11,
+                  }}
+                >
                   {hostMode ? "HOST-MODUS AN" : "HOST-MODUS AUS"}
                 </Text>
               </TouchableOpacity>
@@ -231,7 +187,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       borderColor: selected ? aspectTheme.colors.accentText : aspectTheme.colors.border,
                     }}
                   >
-                    <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "700", fontSize: 11 }}>
+                    <Text
+                      style={{
+                        color: aspectTheme.colors.textPrimary,
+                        fontWeight: "700",
+                        fontSize: 11,
+                      }}
+                    >
                       {room.title} ({room.rating})
                     </Text>
                   </TouchableOpacity>
@@ -250,7 +212,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                 borderColor: isLive ? aspectTheme.colors.accentText : aspectTheme.colors.border,
               }}
             >
-              <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 11 }}>
+              <Text
+                style={{
+                  color: aspectTheme.colors.textPrimary,
+                  fontWeight: "800",
+                  fontSize: 11,
+                }}
+              >
                 {isLive ? "● LIVE AKTIV" : "OFFLINE"}
               </Text>
             </TouchableOpacity>
@@ -266,9 +234,23 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
               gap: 12,
             }}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 8,
+              }}
+            >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 16 }}>
+                <Text
+                  style={{
+                    color: aspectTheme.colors.textPrimary,
+                    fontWeight: "800",
+                    fontSize: 16,
+                  }}
+                >
                   {activeRoom.title}
                 </Text>
                 <VerifiedBadge />
@@ -328,11 +310,23 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
             gap: 12,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
             <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 14 }}>
               LIVE-Kommentare ({currentMessages.length})
             </Text>
-            <Text style={{ color: isLive ? aspectTheme.colors.accentText : aspectTheme.colors.textMuted, fontSize: 11, fontWeight: "700" }}>
+            <Text
+              style={{
+                color: isLive ? aspectTheme.colors.accentText : aspectTheme.colors.textMuted,
+                fontSize: 11,
+                fontWeight: "700",
+              }}
+            >
               {isLive ? "● LIVE-CHAT" : "STANDBY"}
             </Text>
           </View>
@@ -359,9 +353,29 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     gap: 4,
                   }}
                 >
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-                      <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "700", fontSize: 12 }}>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: aspectTheme.colors.textPrimary,
+                          fontWeight: "700",
+                          fontSize: 12,
+                        }}
+                      >
                         {msg.author}
                       </Text>
                       {msg.verified && <VerifiedBadge />}
@@ -377,14 +391,26 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                         <TouchableOpacity
                           onPress={() => setHiddenMessageIds((prev) => [...prev, msg.id])}
                         >
-                          <Text style={{ color: aspectTheme.colors.accentText, fontSize: 10, fontWeight: "700" }}>
+                          <Text
+                            style={{
+                              color: aspectTheme.colors.accentText,
+                              fontSize: 10,
+                              fontWeight: "700",
+                            }}
+                          >
                             Ausblenden
                           </Text>
                         </TouchableOpacity>
                       )}
                     </View>
                   </View>
-                  <Text style={{ color: aspectTheme.colors.textSecondary, fontSize: 12, lineHeight: 17 }}>
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.textSecondary,
+                      fontSize: 12,
+                      lineHeight: 17,
+                    }}
+                  >
                     {msg.text}
                   </Text>
                 </View>
@@ -393,7 +419,14 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
           </ScrollView>
 
           {!isAdultLocked && (
-            <View style={{ gap: 8, paddingTop: 4, borderTopWidth: 1, borderTopColor: aspectTheme.colors.border }}>
+            <View
+              style={{
+                gap: 8,
+                paddingTop: 4,
+                borderTopWidth: 1,
+                borderTopColor: aspectTheme.colors.border,
+              }}
+            >
               <TextInput
                 value={senderName}
                 onChangeText={setSenderName}
@@ -438,7 +471,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     backgroundColor: aspectTheme.colors.accent,
                   }}
                 >
-                  <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 12 }}>
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.textPrimary,
+                      fontWeight: "800",
+                      fontSize: 12,
+                    }}
+                  >
                     Senden
                   </Text>
                 </TouchableOpacity>
@@ -447,6 +486,6 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
           )}
         </View>
       </View>
-    </View>
+    </ScrollView>
   );
 };
