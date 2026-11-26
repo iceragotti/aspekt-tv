@@ -657,6 +657,48 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                 <View
                   style={{
                     flexDirection: "row",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    paddingVertical: 7,
+                    paddingHorizontal: 12,
+                    marginBottom: 10,
+                    borderRadius: 12,
+                    backgroundColor: liquidMode
+                      ? "rgba(255, 255, 255, 0.06)"
+                      : aspectTheme.colors.surfaceRaised,
+                    borderWidth: 1,
+                    borderColor: liquidMode
+                      ? "rgba(255, 255, 255, 0.16)"
+                      : aspectTheme.colors.border,
+                    borderTopColor: liquidMode
+                      ? "rgba(255, 255, 255, 0.28)"
+                      : aspectTheme.colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: aspectTheme.colors.textSecondary,
+                      fontSize: 11,
+                      fontWeight: "700",
+                    }}
+                  >
+                    REGIE-STATUS · {selectedRoomId === "adult-18-live" ? "18+ Night Session" : "ASPEKT Studio Live"} · Block: {sessionChapter}
+                  </Text>
+                  <Text
+                    style={{
+                      color: ageMode === "18+" ? aspectTheme.colors.accentText : aspectTheme.colors.textMuted,
+                      fontSize: 11,
+                      fontWeight: "800",
+                    }}
+                  >
+                    {ageMode === "18+" ? "18+ FREIGEGEBEN" : "U18 SCHUTZ AKTIV"}
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    flexDirection: "row",
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: 8,
