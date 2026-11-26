@@ -20,7 +20,7 @@ const DEMO_STREAMS = [
   },
 ];
 
-const DEFAULT_PLACEHOLDER_HOSTS = ["live.aspekt.tv"];
+const PLACEHOLDER_HOSTS = ["live.aspekt.tv"];
 
 export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
   url,
@@ -31,8 +31,9 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playerNote, setPlayerNote] = useState<string | null>(null);
   const cleanUrl = url.trim();
-  const isPlaceholderUrl = DEFAULT_PLACEHOLDER_HOSTS.some((h) => cleanUrl.includes(h));
-  const shouldRenderPlayer = Platform.OS === "web" && isLive && !disabled && !!cleanUrl && !isPlaceholderUrl;
+  const isPlaceholder = PLACEHOLDER_HOSTS.some((host) => cleanUrl.includes(host));
+  const shouldRenderPlayer =
+    Platform.OS === "web" && isLive && !disabled && !!cleanUrl && !isPlaceholder;
 
   useEffect(() => {
     if (!shouldRenderPlayer) {
@@ -47,7 +48,9 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
     const isHls = /\.m3u8(\?|$)/i.test(cleanUrl);
 
     if (isHls && !videoEl.canPlayType("application/vnd.apple.mpegurl")) {
-      setPlayerNote("Hinweis: .m3u8 erfordert in diesem Browser hls.js oder Safari – wähle ein MP4-Preset oder eine direkte Video-URL.");
+      setPlayerNote(
+        "Hinweis: .m3u8 erfordert in diesem Browser hls.js oder Safari – wähle ein MP4-Preset oder eine direkte Video-URL."
+      );
       return;
     }
 
@@ -67,12 +70,27 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
                 paddingVertical: 6,
                 paddingHorizontal: 10,
                 borderRadius: 999,
-                backgroundColor: cleanUrl === preset.url ? aspectTheme.colors.accentSoft : aspectTheme.colors.surface,
+                backgroundColor:
+                  cleanUrl === preset.url
+                    ? aspectTheme.colors.accentSoft
+                    : aspectTheme.colors.surface,
                 borderWidth: 1,
-                borderColor: cleanUrl === preset.url ? aspectTheme.colors.accentText : aspectTheme.colors.border,
+                borderColor:
+                  cleanUrl === preset.url
+                    ? aspectTheme.colors.accentText
+                    : aspectTheme.colors.border,
               }}
             >
-              <Text style={{ color: cleanUrl === preset.url ? aspectTheme.colors.accentText : aspectTheme.colors.textSecondary, fontSize: 11, fontWeight: "700" }}>
+              <Text
+                style={{
+                  color:
+                    cleanUrl === preset.url
+                      ? aspectTheme.colors.accentText
+                      : aspectTheme.colors.textSecondary,
+                  fontSize: 11,
+                  fontWeight: "700",
+                }}
+              >
                 {preset.label}
               </Text>
             </TouchableOpacity>
@@ -81,7 +99,15 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
       )}
 
       {shouldRenderPlayer && (
-        <View style={{ borderRadius: 12, overflow: "hidden", backgroundColor: "#000", borderWidth: 1, borderColor: aspectTheme.colors.border }}>
+        <View
+          style={{
+            borderRadius: 12,
+            overflow: "hidden",
+            backgroundColor: "#000",
+            borderWidth: 1,
+            borderColor: aspectTheme.colors.border,
+          }}
+        >
           {React.createElement("video", {
             ref: (el: HTMLVideoElement | null) => {
               videoRef.current = el;
@@ -90,13 +116,20 @@ export const LiveUrlPlayerStage: React.FC<LiveUrlPlayerStageProps> = ({
             autoPlay: true,
             muted: true,
             playsInline: true,
-            style: { width: "100%", maxHeight: 360, display: "block", backgroundColor: "#000" },
+            style: {
+              width: "100%",
+              maxHeight: 360,
+              display: "block",
+              backgroundColor: "#000",
+            },
           })}
         </View>
       )}
 
       {playerNote && (
-        <Text style={{ color: aspectTheme.colors.accentText, fontSize: 12 }}>{playerNote}</Text>
+        <Text style={{ color: aspectTheme.colors.accentText, fontSize: 12 }}>
+          {playerNote}
+        </Text>
       )}
     </View>
   );
