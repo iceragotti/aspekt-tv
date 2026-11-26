@@ -223,6 +223,67 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
               {STREAM_ROOMS.map((room) => {
                 const selected = room.id === activeRoom.id;
                 return (
+    <ScrollView
+      style={{ flex: 1, backgroundColor: aspectTheme.colors.canvas }}
+      contentContainerStyle={{ padding: 14, gap: 16 }}
+    >
+      <View
+        style={{
+          flexDirection: Platform.OS === "web" ? "row" : "column",
+          flexWrap: "wrap",
+          alignItems: "flex-start",
+          gap: 16,
+        }}
+      >
+        <View style={{ flex: 1.75, minWidth: 320, gap: 12 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 8,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <TouchableOpacity
+                onPress={() => setHostMode((prev) => !prev)}
+                style={{
+                  paddingVertical: 7,
+                  paddingHorizontal: 12,
+                  borderRadius: 999,
+                  backgroundColor: hostMode
+                    ? aspectTheme.colors.accentSoft
+                    : aspectTheme.colors.surface,
+                  borderWidth: 1,
+                  borderColor: hostMode
+                    ? aspectTheme.colors.accentText
+                    : aspectTheme.colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: hostMode
+                      ? aspectTheme.colors.accentText
+                      : aspectTheme.colors.textSecondary,
+                    fontWeight: "800",
+                    fontSize: 11,
+                  }}
+                >
+                  {hostMode ? "HOST-MODUS AN" : "HOST-MODUS AUS"}
+                </Text>
+              </TouchableOpacity>
+
+              {STREAM_ROOMS.map((room) => {
+                const selected = room.id === activeRoom.id;
+                return (
                   <TouchableOpacity
                     key={room.id}
                     onPress={() => setSelectedRoomId(room.id)}
@@ -230,9 +291,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       paddingVertical: 7,
                       paddingHorizontal: 12,
                       borderRadius: 999,
-                      backgroundColor: selected ? aspectTheme.colors.accent : aspectTheme.colors.surface,
+                      backgroundColor: selected
+                        ? aspectTheme.colors.accent
+                        : aspectTheme.colors.surface,
                       borderWidth: 1,
-                      borderColor: selected ? aspectTheme.colors.accentText : aspectTheme.colors.border,
+                      borderColor: selected
+                        ? aspectTheme.colors.accentText
+                        : aspectTheme.colors.border,
                     }}
                   >
                     <Text
@@ -255,9 +320,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                 paddingVertical: 7,
                 paddingHorizontal: 12,
                 borderRadius: 999,
-                backgroundColor: isLive ? aspectTheme.colors.accent : aspectTheme.colors.surface,
+                backgroundColor: isLive
+                  ? aspectTheme.colors.accent
+                  : aspectTheme.colors.surface,
                 borderWidth: 1,
-                borderColor: isLive ? aspectTheme.colors.accentText : aspectTheme.colors.border,
+                borderColor: isLive
+                  ? aspectTheme.colors.accentText
+                  : aspectTheme.colors.border,
               }}
             >
               <Text
@@ -323,7 +392,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                   gap: 6,
                 }}
               >
-                <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 14 }}>
+                <Text
+                  style={{
+                    color: aspectTheme.colors.textPrimary,
+                    fontWeight: "800",
+                    fontSize: 14,
+                  }}
+                >
                   18+ Bereich im U18-Modus gesperrt
                 </Text>
                 <Text style={{ color: aspectTheme.colors.textSecondary, fontSize: 12 }}>
@@ -365,12 +440,20 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
               justifyContent: "space-between",
             }}
           >
-            <Text style={{ color: aspectTheme.colors.textPrimary, fontWeight: "800", fontSize: 14 }}>
+            <Text
+              style={{
+                color: aspectTheme.colors.textPrimary,
+                fontWeight: "800",
+                fontSize: 14,
+              }}
+            >
               LIVE-Kommentare ({currentMessages.length})
             </Text>
             <Text
               style={{
-                color: isLive ? aspectTheme.colors.accentText : aspectTheme.colors.textMuted,
+                color: isLive
+                  ? aspectTheme.colors.accentText
+                  : aspectTheme.colors.textMuted,
                 fontSize: 11,
                 fontWeight: "700",
               }}
@@ -437,7 +520,9 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                       </Text>
                       {hostMode && (
                         <TouchableOpacity
-                          onPress={() => setHiddenMessageIds((prev) => [...prev, msg.id])}
+                          onPress={() =>
+                            setHiddenMessageIds((prev) => [...prev, msg.id])
+                          }
                         >
                           <Text
                             style={{
