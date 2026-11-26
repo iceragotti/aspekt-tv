@@ -238,6 +238,13 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
 
         <Text style={{ color: aspectTheme.colors.textSecondary, fontSize: 13 }}>{activeRoom.description}</Text>
 
+        {!isAdultLocked && (
+          <View style={{ gap: 12 }}>
+            <HostCameraStage disabled={isAdultLocked} />
+            <LiveUrlPlayerStage url={streamUrls[activeRoom.id]} isLive={isLive} disabled={isAdultLocked} onSelectPresetUrl={(nextUrl) => setStreamUrls((prev) => ({ ...prev, [activeRoom.id]: nextUrl }))} />
+          </View>
+        )}
+
         {isAdultLocked ? (
           <View style={{ padding: 14, borderRadius: 12, backgroundColor: aspectTheme.colors.surfaceRaised, borderWidth: 1, borderColor: aspectTheme.colors.accentText, gap: 8 }}>
             <Text style={{ color: aspectTheme.colors.accentText, fontWeight: "800", fontSize: 14 }}>18+-Altersfreigabe erforderlich</Text>
