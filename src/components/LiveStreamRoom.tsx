@@ -507,6 +507,27 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                     </TouchableOpacity>
                   )}
                 </View>
+                          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                            {["Fragerunde · Live-Talk", "Aktuelles Thema", "Track / Release"].map((preset) => (
+                              <TouchableOpacity
+                                key={preset}
+                                onPress={() => {
+                                  setPinnedBanner(preset);
+                                  setEditingPin(false);
+                                }}
+                                style={{
+                                  paddingVertical: 3,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 999,
+                                  backgroundColor: "rgba(255, 255, 255, 0.14)",
+                                }}
+                              >
+                                <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "700" }}>
+                                  {preset}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
                 {editingPin && hostMode ? (
                   <TextInput
                     value={pinnedBanner}
@@ -664,7 +685,23 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                           {msg.sentAt}
                         </Text>
                         {hostMode && (
-                          <TouchableOpacity
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                              <TouchableOpacity
+                                onPress={() =>
+                                  setPinnedBanner(`${msg.author}: ${msg.text}`)
+                                }
+                              >
+                                <Text
+                                  style={{
+                                    color: aspectTheme.colors.textPrimary,
+                                    fontSize: 11,
+                                    fontWeight: "700",
+                                  }}
+                                >
+                                  Anpinnen
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
                             onPress={() =>
                               setHiddenMessageIds((prev) => [...prev, msg.id])
                             }
@@ -679,6 +716,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
                               Ausblenden
                             </Text>
                           </TouchableOpacity>
+                            </View>
                         )}
                       </View>
                     </View>
