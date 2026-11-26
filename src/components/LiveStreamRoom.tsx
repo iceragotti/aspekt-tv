@@ -26,6 +26,7 @@ interface LiveChatMessage {
   verified: boolean;
   text: string;
   sentAt: string;
+  isHost?: boolean;
 }
 
 const STREAM_ROOMS: StreamDefinition[] = [
@@ -54,7 +55,9 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
     "main-live": STREAM_ROOMS[0].defaultUrl,
     "adult-18-live": STREAM_ROOMS[1].defaultUrl,
   });
-  const [senderName, setSenderName] = useState<string>("Zuschauer");
+  const [hostMode, setHostMode] = useState<boolean>(true);
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<string[]>([]);
+  const [senderName, setSenderName] = useState<string>("ICE RAGOTTI");
   const [chatInput, setChatInput] = useState<string>("");
   const [messagesByRoom, setMessagesByRoom] = useState<Record<"main-live" | "adult-18-live", LiveChatMessage[]>>({
     "main-live": [
@@ -89,7 +92,7 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
   );
 
   const isAdultLocked = activeRoom.rating === "18+" && ageMode !== "18+";
-  const currentMessages = messagesByRoom[activeRoom.id] ?? [];
+  const currentMessages = (messagesByRoom[activeRoom.id] ?? []).filter((m) => !hiddenMessageIds.includes(m.id));
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase || isAdultLocked) {
@@ -169,6 +172,22 @@ export const LiveStreamRoom: React.FC<LiveStreamRoomProps> = ({ ageMode, onConfi
             const selected = room.id === selectedRoomId;
             return (
               <TouchableOpacity
+            onPress={() => setHostMode((prev) => !prev)}
+            style={{
+              paddingVertical: 7,
+              paddingHorizontal: 12,
+              borderRadius: 999,
+              backgroundColor: hostMode ? aspectTheme.colors.accentSoft : aspectTheme.colors.surfaceRaised,
+              borderWidth: 1,
+              borderColor: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.border,
+            }}
+          >
+            <Text style={{ color: hostMode ? aspectTheme.colors.accentText : aspectTheme.colors.textSecondary, fontWeight: "700", fontSize: 12 }}>
+              {hostMode ? "HOST-MODUS AN" : "ZUSCHAUER-MODUS"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
                 key={room.id}
                 onPress={() => setSelectedRoomId(room.id)}
                 style={{
