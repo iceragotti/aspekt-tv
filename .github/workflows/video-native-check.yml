@@ -32,6 +32,8 @@ jobs:
           git add package-lock.json
           if ! git diff --cached --quiet; then
             git commit -m "build: sync verified expo-video lockfile [skip ci]"
+            git fetch origin aspekt-next
+            git rebase origin/aspekt-next
             git push origin HEAD:aspekt-next
           fi
       - uses: actions/upload-artifact@v4
