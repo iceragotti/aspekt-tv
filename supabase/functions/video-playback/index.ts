@@ -5,7 +5,10 @@ const url=Deno.env.get('SUPABASE_URL')??'';
 const key=Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')??'';
 const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
 Deno.serve(async request=>{
- const headers={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff'};
+ const headers={'Cache-Control':'no-store','Content-Type':'application/json','X-Content-Type-Options':'nosniff',
+ 'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS',
+ 'Access-Control-Allow-Headers':'apikey,authorization,content-type'};
+ if(request.method==='OPTIONS')return new Response(null,{status:204,headers});
  if(!enabled || request.method!=='GET')return new Response('{"error":"unavailable"}',{status:404,headers});
  try {
   const requestUrl=new URL(request.url);
