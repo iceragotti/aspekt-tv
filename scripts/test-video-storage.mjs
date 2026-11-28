@@ -97,6 +97,11 @@ const privateLibrary=ok(await owner.db.rpc('video_my_library'),'owner video libr
 assert.ok(privateLibrary.some(v=>v.id===registered&&v.title==='Erstes echtes Video'&&v.status==='quarantine'));
 const otherLibrary=ok(await other.db.rpc('video_my_library'),'other library');
 assert.equal(otherLibrary.length,0,'Owner library leaked');
+const edgeUrl=process.env.ASPEKT_EDGE_TEST_URL;
+if(edgeUrl){
+ const forbidden=await fetch(edgeUrl+'?id='+registered);
+ assert.equal(forbidden.status,404,'Unpublished media returned a playback link');
+}
 const catalogBefore=ok(await other.db.rpc('video_public_catalog'),'unpublished catalog');
 assert.equal(catalogBefore.length,0,'Unapproved video appeared in public catalog');
 const workerEnv={...process.env,SUPABASE_URL:url,SUPABASE_SERVICE_ROLE_KEY:serviceKey};
@@ -125,6 +130,14 @@ const approved=ok(await server.from('video_review').select('state').eq('id',regi
 assert.equal(approved.state,'approved');
 await expectFailure(()=>owner.db.rpc('video_publish',{p_review_id:registered}),'Creator published own video');
 ok(await reviewer.db.rpc('video_publish',{p_review_id:registered}),'publish approved asset');
+if(edgeUrl){
+ const permitted=await fetch(edgeUrl+'?id='+registered);
+ assert.equal(permitted.status,200,'Published media playback was not authorized');
+ const signedResponse=await permitted.json();
+ assert.ok(signedResponse.url && signedResponse.expiresIn===60,'Missing short-lived playback link');
+ const playable=await fetch(signedResponse.url);
+ assert.equal(playable.ok,true,'Signed public playback asset inaccessible');
+}
 const publicCatalog=ok(await other.db.rpc('video_public_catalog'),'active public catalog');
 assert.equal(publicCatalog.length,1,'Published video absent from public catalog');
 assert.equal(publicCatalog[0].title,'Erstes echtes Video');
@@ -139,6 +152,10 @@ await expectFailure(()=>owner.db.storage.from('aspekt-video-processed').download
 ok(await reviewer.db.rpc('video_revoke',{p_review_id:registered}),'revoke publication');
 const revoked=ok(await server.from('video_publications').select('revoked_at').eq('review_id',registered).single(),'revoked record');
 assert.ok(revoked.revoked_at,'Revocation not recorded');
+if(edgeUrl){
+ const revokedPlayback=await fetch(edgeUrl+'?id='+registered);
+ assert.equal(revokedPlayback.status,404,'Revoked media still issued new signed links');
+}
 const catalogAfterRevoke=ok(await other.db.rpc('video_public_catalog'),'revoked catalog');
 assert.equal(catalogAfterRevoke.length,0,'Revoked video still discoverable');
 const stored=ok(await server.storage.getBucket(bucket),'postapproval bucket');
