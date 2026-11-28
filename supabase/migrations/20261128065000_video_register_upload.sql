@@ -6,7 +6,7 @@ returns uuid language plpgsql security definer set search_path='' as $$
 declare v_id uuid;
 begin
  if auth.uid() is null or p_path is null or
-    p_path !~ ('^' || auth.uid()::text || '/[0-9a-f-]{36}\\.(mp4|webm)$')
+    p_path !~ ('^' || auth.uid()::text || '/[0-9a-f-]{36}[.](mp4|webm)$')
  then raise exception 'Invalid owner path' using errcode='42501'; end if;
  if not exists (
    select 1 from storage.objects o
