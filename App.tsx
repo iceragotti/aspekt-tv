@@ -16,6 +16,7 @@ import { ConsciousFeedBar } from './src/consciousFeed';
 import { aspectTheme } from './src/aspectTheme';
 import { FREEDOM_PRINCIPLES, FREEDOM_POLICY_VERSION } from './src/domain/freedom';
 import TrustCenter from './src/components/TrustCenter';
+import VideoCenter from './src/components/VideoCenter';
 
 type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 'Reporter' | 'Creator';
 type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigegeben';
@@ -26,7 +27,7 @@ type PulseReaction = '❤️' | '😂' | '👍' | '😮';
 type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
-type SupportTab = 'ASPEKT FREEDOM' | 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
+type SupportTab = 'ASPEKT VIDEO' | 'ASPEKT FREEDOM' | 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
 type DirectChannelKey = 'telegram' | 'x' | 'press';
 type DirectChannelLinks = Record<DirectChannelKey, string>;
 
@@ -1166,7 +1167,7 @@ export default function App() {
         </View>
 
         <View style={styles.tabRow}>
-          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'ASPEKT FREEDOM', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
+          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'ASPEKT VIDEO', 'ASPEKT FREEDOM', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
             <TouchableOpacity
               key={item}
               style={[styles.tabButton, tab === item && styles.tabButtonActive]}
@@ -1178,6 +1179,7 @@ export default function App() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
+          {tab === 'ASPEKT VIDEO' && <VideoCenter onFreedom={() => setTab('ASPEKT FREEDOM')} />}
           {tab === 'ASPEKT FREEDOM' && (
             <View style={styles.pulseFilterPanel}>
               <Text style={styles.pulseFilterTitle}>ASPEKT FREEDOM</Text>
