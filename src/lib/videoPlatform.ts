@@ -23,7 +23,8 @@ export async function myVideoChannel():Promise<VideoChannel|null>{
  if(error||!user.user)throw Error('Bitte anmelden');
  const result=await supabase.from('video_channels').select('owner_id,handle,display_name,description')
   .eq('owner_id',user.user.id).maybeSingle();
- return unwrap(result)??null;
+ if(result.error)throw Error(result.error.message);
+ return (result.data as VideoChannel|null)??null;
 }
 export async function saveVideoChannel(handle:string,displayName:string,description:string):Promise<void>{
  assertStage();
