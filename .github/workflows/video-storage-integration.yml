@@ -77,7 +77,7 @@ jobs:
           export SUPABASE_ANON_KEY="$ANON_KEY"
           export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
           export ASPEKT_VIDEO_FIXTURE="$RUNNER_TEMP/aspekt-video-fixture.mp4"
-          printf 'VIDEO_PUBLIC_DELIVERY_ENABLED=true\\n' > "$VIDEO_CI_DIR/video-playback.env"
+          echo 'VIDEO_PUBLIC_DELIVERY_ENABLED=true' > "$VIDEO_CI_DIR/video-playback.env"
           (
             cd "$VIDEO_CI_DIR"
             supabase functions serve video-playback --no-verify-jwt --env-file video-playback.env
