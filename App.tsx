@@ -14,6 +14,7 @@ import {
 import SocialChatModal from './src/components/SocialChatModal';
 import { ConsciousFeedBar } from './src/consciousFeed';
 import { aspectTheme } from './src/aspectTheme';
+import { FREEDOM_PRINCIPLES, FREEDOM_POLICY_VERSION } from './src/domain/freedom';
 
 type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 'Reporter' | 'Creator';
 type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigegeben';
@@ -24,7 +25,7 @@ type PulseReaction = '❤️' | '😂' | '👍' | '😮';
 type PulseFeedFilter = 'Alle' | 'Neu' | 'Gefolgt';
 type ReactionCounts = Partial<Record<PulseReaction, number>>;
 type PulseNoticeTone = 'success' | 'error' | 'info';
-type SupportTab = 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
+type SupportTab = 'ASPEKT FREEDOM' | 'News' | 'Live TV' | 'ASPEKT PULSE' | 'Shorts' | 'Team' | 'Redaktion' | 'Hilfe & Schutz' | 'Support';
 type DirectChannelKey = 'telegram' | 'x' | 'press';
 type DirectChannelLinks = Record<DirectChannelKey, string>;
 
@@ -1164,7 +1165,7 @@ export default function App() {
         </View>
 
         <View style={styles.tabRow}>
-          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
+          {(['News', 'Live TV', 'ASPEKT PULSE', 'Shorts', 'ASPEKT FREEDOM', 'Support', 'Team', 'Redaktion', 'Hilfe & Schutz'] as const).map((item) => (
             <TouchableOpacity
               key={item}
               style={[styles.tabButton, tab === item && styles.tabButtonActive]}
@@ -1176,6 +1177,32 @@ export default function App() {
         </View>
 
         <ScrollView contentContainerStyle={styles.content}>
+          {tab === 'ASPEKT FREEDOM' && (
+            <View style={styles.pulseFilterPanel}>
+              <Text style={styles.pulseFilterTitle}>ASPEKT FREEDOM</Text>
+              <Text style={styles.feedTransparencyText}>Eine Welt. Viele Stimmen. Deine Freiheit.</Text>
+              <Text style={styles.feedTransparencyNote}>Charta – Entwurf {FREEDOM_POLICY_VERSION}. Diese Entwicklungsversion nutzt lokale Beispieldaten; keine verbindliche Moderationsentscheidung eines Servers.</Text>
+              {FREEDOM_PRINCIPLES.map((principle, index) => (
+                <Text key={principle} style={styles.feedTransparencyText}>{index + 1}. {principle}</Text>
+              ))}
+              <Text style={styles.pulseFilterTitle}>Dein Feed – deine Wahl</Text>
+              {PULSE_FEED_FILTERS.map(filter => (
+                <TouchableOpacity key={filter} accessibilityRole="button"
+                  accessibilityState={{ selected: pulseFeedFilter === filter }}
+                  style={[styles.pulseFilterButton, { minHeight: 44, justifyContent: 'center' }, pulseFeedFilter === filter && styles.pulseFilterButtonActive]}
+                  onPress={() => setPulseFeedFilter(filter)}>
+                  <Text style={[styles.pulseFilterButtonText, pulseFeedFilter === filter && styles.pulseFilterButtonTextActive]}>
+                    {filter === 'Alle' ? 'Alle – gespeicherte Reihenfolge' : filter === 'Neu' ? 'Neu – neueste zuerst' : 'Gefolgt – nur gefolgte Creator'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <Text style={styles.feedTransparencyNote}>Schutzprofil, Blockierungen und bestehende Moderationsregeln gelten weiterhin.</Text>
+              <TouchableOpacity accessibilityRole="button" style={[styles.primaryButton, { minHeight: 44 }]} onPress={() => setTab('ASPEKT PULSE')}>
+                <Text style={styles.pulseFilterButtonText}>Zum PULSE-Feed und Einspruchsbereich ({myRestrictedPosts.length} lokale Einschränkungen)</Text>
+              </TouchableOpacity>
+              <Text style={styles.feedTransparencyText}>Bei einer Einschränkung soll eine konkrete Begründung sichtbar sein. Im PULSE-Bereich kannst du vorhandene lokale Entscheidungen und Einsprüche einsehen. Eine unabhängige serverseitige Prüfung ist noch nicht eingerichtet.</Text>
+            </View>
+          )}
           {tab === 'News' && (
             <>
               <View style={styles.searchRow}>
@@ -1317,7 +1344,7 @@ export default function App() {
                   </Text>
                   <Text style={styles.feedTransparencyText}>
                     {pulseFeedFilter === 'Alle'
-                      ? 'Alle für dein Schutzprofil freigegebenen Beiträge in chronologischer Feed-Reihenfolge. Keine personalisierte Sortierung oder Shadowbanning.'
+                      ? 'Alle im aktuellen Schutzprofil sichtbaren Beiträge in gespeicherter Reihenfolge. Keine personalisierte Sortierung in dieser Ansicht.'
                       : pulseFeedFilter === 'Neu'
                         ? 'Neueste Beiträge zuerst nach Veröffentlichungszeit. Ältere Beiträge ohne Zeitstempel behalten ihre gespeicherte Reihenfolge.'
                         : 'Nur Beiträge von Creatorn, denen du folgst. Weitere Beiträge bleiben unter „Alle“ sichtbar.'}
