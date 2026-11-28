@@ -15,6 +15,7 @@ import SocialChatModal from './src/components/SocialChatModal';
 import { ConsciousFeedBar } from './src/consciousFeed';
 import { aspectTheme } from './src/aspectTheme';
 import { FREEDOM_PRINCIPLES, FREEDOM_POLICY_VERSION } from './src/domain/freedom';
+import TrustCenter from './src/components/TrustCenter';
 
 type Role = 'Administrator' | 'Chefredaktion' | 'Ressortleiter' | 'Redakteur' | 'Reporter' | 'Creator';
 type ArticleStatus = 'Entwurf' | 'Zur Prüfung' | 'Korrektur nötig' | 'Freigegeben';
@@ -1180,6 +1181,7 @@ export default function App() {
           {tab === 'ASPEKT FREEDOM' && (
             <View style={styles.pulseFilterPanel}>
               <Text style={styles.pulseFilterTitle}>ASPEKT FREEDOM</Text>
+              <Text style={styles.pulseFilterTitle}>CONTROL CENTER · MY RIGHTS / MY ALGORITHM</Text>
               <Text style={styles.feedTransparencyText}>Eine Welt. Viele Stimmen. Deine Freiheit.</Text>
               <Text style={styles.feedTransparencyNote}>Charta – Entwurf {FREEDOM_POLICY_VERSION}. Diese Entwicklungsversion nutzt lokale Beispieldaten; keine verbindliche Moderationsentscheidung eines Servers.</Text>
               {FREEDOM_PRINCIPLES.map((principle, index) => (
@@ -1201,6 +1203,7 @@ export default function App() {
                 <Text style={styles.pulseFilterButtonText}>Zum PULSE-Feed und Einspruchsbereich ({myRestrictedPosts.length} lokale Einschränkungen)</Text>
               </TouchableOpacity>
               <Text style={styles.feedTransparencyText}>Bei einer Einschränkung soll eine konkrete Begründung sichtbar sein. Im PULSE-Bereich kannst du vorhandene lokale Entscheidungen und Einsprüche einsehen. Eine unabhängige serverseitige Prüfung ist noch nicht eingerichtet.</Text>
+              <TrustCenter />
             </View>
           )}
           {tab === 'News' && (
