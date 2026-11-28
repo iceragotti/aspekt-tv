@@ -24,12 +24,12 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Resolve packages from installed Expo SDK 58
-        run: npx --no-install expo install expo-document-picker expo-file-system
+        run: npx --no-install expo install expo-document-picker expo-file-system expo-crypto
       - name: Assert dependency and lockfile alignment
         run: |
           node - <<'NODE'
           const p=require('./package.json'),l=require('./package-lock.json');
-          for(const name of ['expo-document-picker','expo-file-system']){
+          for(const name of ['expo-document-picker','expo-file-system','expo-crypto']){
             if(!p.dependencies[name]||p.dependencies[name]!==l.packages[''].dependencies[name]||!l.packages['node_modules/'+name])
               throw Error('Unresolved dependency '+name);
           }
