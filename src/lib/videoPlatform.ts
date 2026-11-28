@@ -72,3 +72,9 @@ export async function approvedVideoPlayback(id:string):Promise<string>{
  throw Error('Wiedergabequelle nicht erlaubt');
  return u.toString();
 }
+
+export async function unpublishOwnVideo(id:string):Promise<void>{
+ assertStage();
+ const {error}=await supabase.rpc('video_creator_unpublish',{p_review_id:id});
+ if(error)throw error;
+}
