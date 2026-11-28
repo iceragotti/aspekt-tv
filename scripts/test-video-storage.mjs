@@ -134,8 +134,9 @@ if(edgeUrl){
  const permitted=await fetch(edgeUrl+'?id='+registered);
  assert.equal(permitted.status,200,'Published media playback was not authorized');
  const signedResponse=await permitted.json();
- assert.ok(signedResponse.url && signedResponse.expiresIn===60,'Missing short-lived playback link');
- const playable=await fetch(signedResponse.url);
+ assert.ok(signedResponse.path && signedResponse.expiresIn===60,'Missing short-lived playback link');
+ assert.ok(signedResponse.path.startsWith('/storage/v1/object/sign/aspekt-video-processed/'),'Invalid playback path');
+ const playable=await fetch(new URL(signedResponse.path,url));
  assert.equal(playable.ok,true,'Signed public playback asset inaccessible');
 }
 const publicCatalog=ok(await other.db.rpc('video_public_catalog'),'active public catalog');
