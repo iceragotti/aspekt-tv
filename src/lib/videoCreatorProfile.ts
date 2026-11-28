@@ -17,8 +17,8 @@ export async function saveVideoCreatorName(name:string):Promise<void>{
   if(displayName.length<1||displayName.length>80)throw new Error('Creator-Name: 1 bis 80 Zeichen');
   const {data:user,error:authError}=await supabase.auth.getUser();
   if(authError||!user.user)throw new Error('Anmeldung erforderlich');
-  // Owner ID is provided explicitly; the database checks it with RLS.
+  // owner_id defaults to auth.uid() in SQL; clients are not granted permission to set it.
   const {error}=await supabase.from('video_creator_profiles')
-    .upsert({owner_id:user.user.id,display_name:displayName},{onConflict:'owner_id'});
+    .upsert({display_name:displayName},{onConflict:'owner_id'});
   if(error)throw error;
 }
