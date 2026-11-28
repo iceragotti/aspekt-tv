@@ -51,6 +51,17 @@ The `Isolated Supabase video integration` workflow separately exercises real loc
 7. Record go/no-go and rollback ownership. A client-side origin check is not an authorization boundary.
 
 `scripts/test-video-staging-gate.mjs` is wired into the quality CI workflow; it tests the default fail-closed gate, not a live HTTPS endpoint.
+## Phase 6.7.3 – CI and installable beta build preflight
+
+**State:** Configuration prepared only. No HTTPS hosting, production data access, iOS IPA/Android APK generation, EAS credential registration or actual device validation occurred.
+
+- The Quality workflow runs `node scripts/test-beta-build-config.mjs`, `node scripts/test-video-staging-gate.mjs`, the native upload mock suite, TypeScript checks, a web export and dependency audit. Supabase Storage integration runs separately on `aspekt-next` using disposable local services.
+- GitHub's combined status may show Vercel success without proving GitHub Actions jobs passed. Inspect the actual workflow runs in GitHub Actions for this branch and record their commit SHA, conclusion, job names and failing step logs. Treat unavailable results as **UNVERIFIED**, never green.
+- The internal `beta-preview` EAS profile targets an Android APK and a physical iOS device (`simulator: false`). Both development and beta profiles keep `EXPO_PUBLIC_VIDEO_STAGING=false` and `EXPO_PUBLIC_TRUST_STAGING=false`. This prevents accidental release but also means no device upload can yet occur using those profiles.
+- **Build blocker:** App-specific iOS `bundleIdentifier`, Android `package`, EAS `projectId`, Apple signing/provisioning, and Android signing still require the correct owner's verification and a deliberate beta-only configuration. Do not reuse production identifiers or credentials without review.
+- **HTTPS staging blocker:** Only after provisioning an independent Supabase project and verifying its project reference, RLS, Storage isolation, TLS, functions, dummy accounts and orphaned-object retention may reviewers approve its exact origin in `src/lib/videoStagingGate.ts`. The origin allowlist remains empty.
+- Do not run `supabase link`, `supabase db push`, `supabase functions deploy`, `eas build`, `eas update`, `eas submit` or any remote migration as part of this preflight. These require a separately approved target and credentials.
+- For go/no-go, obtain successful GitHub quality and Supabase integration results, verify signed upload and cross-account rejection against staging, and complete real device tests. Keep an evidence record and rollback plan.
 ## Known beta limitations
 - 20 MiB limit is intentionally small; native selection copies to cache. Very large files and background-resumable uploads are out of scope.
 - Network interruptions can leave an unregistered private Storage object; require a server-side stale-object cleanup process before scaling.
