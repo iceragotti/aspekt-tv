@@ -33,6 +33,20 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
           EXPO_PUBLIC_SUPABASE_ANON_KEY: test-only
       - run: npm audit --audit-level=high
+      - name: Record app job evidence
+        if: always()
+        env:
+          CI_JOB_STATUS: ${{ job.status }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_COMMIT: ${{ github.sha }}
+        run: |
+          echo "### ASPEKT NEXT app – CI evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: aspekt-next" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $CI_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/attempts/$CI_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job state: $CI_JOB_STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- This report is **not** a beta release approval." >> "$GITHUB_STEP_SUMMARY"
   trust:
     if: github.ref == 'refs/heads/aspekt-next'
     runs-on: ubuntu-latest
@@ -69,6 +83,20 @@ jobs:
       - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128062000_video_engine.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128065000_video_register_upload.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_storage_rls.sql
+      - name: Record trust job evidence
+        if: always()
+        env:
+          CI_JOB_STATUS: ${{ job.status }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_COMMIT: ${{ github.sha }}
+        run: |
+          echo "### ASPEKT NEXT trust – CI evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: aspekt-next" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $CI_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/attempts/$CI_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job state: $CI_JOB_STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- This report is **not** a beta release approval." >> "$GITHUB_STEP_SUMMARY"
   media:
     if: github.ref == 'refs/heads/aspekt-next'
     runs-on: ubuntu-latest
@@ -95,3 +123,17 @@ jobs:
             echo 'ERROR: Invalid video accepted'
             exit 1
           fi
+      - name: Record media job evidence
+        if: always()
+        env:
+          CI_JOB_STATUS: ${{ job.status }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_COMMIT: ${{ github.sha }}
+        run: |
+          echo "### ASPEKT NEXT media – CI evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: aspekt-next" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $CI_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/attempts/$CI_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job state: $CI_JOB_STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- This report is **not** a beta release approval." >> "$GITHUB_STEP_SUMMARY"
