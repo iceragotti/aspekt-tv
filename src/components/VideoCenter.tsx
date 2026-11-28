@@ -192,7 +192,7 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
    {section==='Studio'&&<>
      <Text style={s.heading}>Creator-Start: 1. Konto anmelden → 2. Kanal unter Channels erstellen → 3. Video hochladen → 4. In Library Titel und Status prüfen → 5. Unabhängige Freigabe abwarten</Text>
      <Text style={s.text}>Private Uploads und Creator-Profile. Zur Veröffentlichung sind Medienprüfung und unabhängige Moderation erforderlich.</Text>
-     <PrivateVideo/>
+     <PrivateVideo onUploaded={()=>void load()}/>
      <Text style={s.text}>Die Videodetails können nach dem Upload im Bereich Library bearbeitet werden.</Text>
    </>}
  </ScrollView>;
