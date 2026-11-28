@@ -89,6 +89,20 @@ Changes are restricted to `aspekt-next`; `main` and production Supabase are out 
 ### Read-only release preflight
 
 `node scripts/preflight-beta-release.mjs` intentionally exits with status 1 and enumerates unverified requirements. It performs no network calls or deployments. It is not part of the green CI path, and cannot be used as an approval certificate.
+## Phase 6.7.5 – CI evidence review and beta decision (2026-11-28)
+
+**Decision: NO-GO for external HTTPS deployment or closed smartphone distribution.** This is a lack-of-evidence decision, not a claim that application tests failed.
+
+- Source branch: `aspekt-next` only. Production and `main` remain untouched by this phase.
+- GitHub commit status for the pre-phase commit reported **Vercel success only**; this is not equivalent to GitHub Actions success.
+- The available GitHub connector exposes only pull-request-triggered workflow runs for a commit. It returned no records for the branch's push-triggered checks. Direct access to a complete list of GitHub Actions runs and individual logs was unavailable. **No verified failing GitHub Actions job or exact error log was obtained; there is no evidence-based CI bug fix to claim.**
+- Quality jobs (`app`, `trust`, `media`) and isolated Supabase integration (`supabase-storage`) now write a run summary on success/failure with the exact SHA, attempt, status and canonical workflow-run URL, using `if: always()`. No production credentials or deployments are involved.
+- These summary changes **must themselves execute** before any status can be treated as evidence. For the final SHA, collect actual GitHub Actions run URLs, job conclusions and any failed-step logs from the Actions UI. Record all four job names.
+- Release preflight remains deliberately blocking (`node scripts/preflight-beta-release.mjs` exits non-zero). The staging HTTPS allowlist remains empty; video staging flags remain off in EAS profiles. No production or external Supabase project is allowed.
+- Missing GO evidence: independent project review and TLS/RLS/private-storage tests, CI success against the exact commit, dedicated EAS identifiers and signing, and physical iOS/Android tests using dummy accounts and videos.
+
+**Go decision** may be revisited only after a reviewer records exact successful CI run links, separate staging project verification, private-access tests, owner-approved EAS signing, real-device end-to-end tests and rollback procedure. Never infer a GO decision from Vercel status or configuration tests alone.
+
 ## Known beta limitations
 - 20 MiB limit is intentionally small; native selection copies to cache. Very large files and background-resumable uploads are out of scope.
 - Network interruptions can leave an unregistered private Storage object; require a server-side stale-object cleanup process before scaling.
