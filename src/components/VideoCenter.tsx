@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {View,Text,TextInput,TouchableOpacity,StyleSheet} from 'react-native';
+import PrivateVideo from './PrivateVideo';
 import {selectFeed} from '../domain/freedom';
 type Video = {id:string;authorId:string;createdAt:number;title:string;kind:'video'|'short';draft:boolean};
 type Section = 'Discover'|'Shorts'|'Channels'|'Library'|'Studio';
@@ -32,7 +33,8 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
  </>}
  {section==='Channels'&&Array.from(new Set(samples.map(v=>v.authorId))).map(id=>button(id+(following.includes(id)?' · Gefolgt':' · Folgen'),()=>setFollowing(old=>toggle(old,id)),id))}
  {section==='Studio'?<>
- <Text style={s.text}>Videoentwurf – Upload und Veröffentlichung noch deaktiviert.</Text>
+ <Text style={s.text}>Videoentwurf – privater Testupload im Web, Veröffentlichung deaktiviert.</Text>
+ <PrivateVideo />
  <Text style={s.text}>Titel</Text><TextInput accessibilityLabel="Videotitel" style={s.input} value={title} maxLength={120} onChangeText={setTitle}/>
  {button('Format: '+kind,()=>setKind(k=>k==='video'?'short':'video'))}
  {button('Entwurf erstellen',()=>{if(!title.trim())return;setDrafts(old=>[...old,{id:'draft-'+Date.now()+'-'+old.length,authorId:'Lokaler Creator',createdAt:Date.now(),title:title.trim(),kind,draft:true}]);setTitle('');})}
