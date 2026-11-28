@@ -6,7 +6,7 @@ import {supabase} from '../lib/supabase';
 import {privateVideoEnabled} from '../lib/privateVideo';
 import {
  myVideoLibrary,publicVideoCatalog,myVideoChannel,saveVideoChannel,
- updateVideoMetadata,type VideoEntry,type PublicVideoEntry
+ updateVideoMetadata,unpublishOwnVideo,type VideoEntry,type PublicVideoEntry
 } from '../lib/videoPlatform';
 
 type Section='Discover'|'Shorts'|'Channels'|'Library'|'Studio';
@@ -53,6 +53,17 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
    setBusy(true);
    try{await saveVideoChannel(handle,displayName,bio);setNotice('Creator-Kanal gespeichert.');}
    catch{setNotice('Kanal konnte nicht gespeichert werden. Handle muss einzigartig und gültig sein.');}
+   finally{setBusy(false);}
+ }
+ async function unpublish(id:string){
+   if(busy)return;
+   setBusy(true);
+   try{
+     await unpublishOwnVideo(id);
+     const [mine,feed]=await Promise.all([myVideoLibrary(),publicVideoCatalog()]);
+     setLibrary(mine);setPublished(feed);setSelected(null);
+     setNotice('Veröffentlichung zurückgezogen. Neue Wiedergabelinks werden nicht mehr ausgegeben.');
+   }catch{setNotice('Video konnte nicht zurückgezogen werden. Berechtigungen prüfen.');}
    finally{setBusy(false);}
  }
  async function saveDetails(){
@@ -120,6 +131,7 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
      {library.map(v=><View key={v.id} style={s.card}>
        <Text style={s.heading}>{v.title}</Text>
        <Text style={s.text}>{v.kind} · Prüfung: {v.status} · Veröffentlichung: {v.published?'Aktiv':'Nicht öffentlich'}</Text>
+       {v.published&&button('Veröffentlichung zurückziehen',()=>void unpublish(v.id),'unpublish-'+v.id,busy)}
        {button('Videodetails bearbeiten',()=>{
          setEditing(v.id);setTitle(v.title==='Unbenannt'?'':v.title);
          setDescription(v.description);setKind(v.kind);
