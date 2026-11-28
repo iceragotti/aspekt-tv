@@ -55,3 +55,5 @@ jobs:
 
       - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128060000_video_drafts.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_drafts.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128063000_video_review.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_review.sql
