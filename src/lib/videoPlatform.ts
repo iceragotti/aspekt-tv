@@ -64,11 +64,11 @@ export async function approvedVideoPlayback(id:string):Promise<string>{
   method:'GET',headers:{'Accept':'application/json'}
  });
  if(!res.ok)throw Error('Video ist nicht freigegeben oder der Test-Player ist deaktiviert');
- const payload=await res.json() as {url?:string;expiresIn?:number};
- if(!payload.url || payload.expiresIn!==60)throw Error('Ungültige Wiedergabeantwort');
- const u=new URL(payload.url);
+ const payload=await res.json() as {path?:string;expiresIn?:number};
+ if(!payload.path || payload.expiresIn!==60)throw Error('Ungültige Wiedergabeantwort');
+ const u=new URL(payload.path,base);
  const origin=new URL(base);
- if(u.origin!==origin.origin || !u.pathname.includes('/storage/v1/object/sign/aspekt-video-processed/'))
+ if(u.origin!==origin.origin || !u.pathname.startsWith('/storage/v1/object/sign/aspekt-video-processed/') || !u.searchParams.has('token'))
  throw Error('Wiedergabequelle nicht erlaubt');
  return u.toString();
 }
