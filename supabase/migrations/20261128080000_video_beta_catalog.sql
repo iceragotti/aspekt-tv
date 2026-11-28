@@ -73,8 +73,8 @@ returns table(id uuid,title text,description text,kind text,channel_handle text,
 language sql stable security definer set search_path='' as $$
  select v.* from public.video_public_catalog() v
  where (length(btrim(coalesce(p_term,'')))=0 or
-    v.title ilike '%'||replace(replace(replace(left(btrim(p_term),80),'\\','\\\\'),'%','\\%'),'_','\\_')||'%' escape '\'
-    or v.channel_name ilike '%'||replace(replace(replace(left(btrim(p_term),80),'\\','\\\\'),'%','\\%'),'_','\\_')||'%' escape '\')
+    strpos(lower(v.title),lower(left(btrim(p_term),80)))>0
+    or strpos(lower(v.channel_name),lower(left(btrim(p_term),80)))>0)
  and (p_handle is null or v.channel_handle=p_handle)
  and (p_kind is null or v.kind=p_kind)
  order by v.published_at desc,v.id desc limit 100
