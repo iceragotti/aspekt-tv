@@ -50,6 +50,7 @@ jobs:
         with:
           persist-credentials: false
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/ci_fixture.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_storage_fixture.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128023000_trust_justice.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/trust_justice.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/trust_rls.sql
@@ -58,3 +59,29 @@ jobs:
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_drafts.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128063000_video_review.sql
       - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_review.sql
+
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128062000_video_engine.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128065000_video_register_upload.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/video_storage_rls.sql
+  media:
+    if: github.ref == 'refs/heads/aspekt-next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Validate genuine and malformed video files
+        run: |
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=64x64:d=1 -an -c:v libx264 -pix_fmt yuv420p /tmp/aspekt-valid.mp4
+          node scripts/validate-video.mjs /tmp/aspekt-valid.mp4
+          printf 'not a video at all' > /tmp/aspekt-invalid.mp4
+          if node scripts/validate-video.mjs /tmp/aspekt-invalid.mp4; then
+            echo 'ERROR: Invalid video accepted'
+            exit 1
+          fi
