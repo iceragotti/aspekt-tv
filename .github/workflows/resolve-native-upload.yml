@@ -1,0 +1,53 @@
+name: Resolve SDK 58 native upload packages
+on:
+  workflow_dispatch:
+  push:
+    branches: [aspekt-next]
+    paths: ['.github/workflows/resolve-native-upload.yml']
+concurrency:
+  group: aspekt-next-native-upload-dependencies
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  resolve:
+    if: github.ref == 'refs/heads/aspekt-next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Resolve packages from installed Expo SDK 58
+        run: npx --no-install expo install expo-document-picker expo-file-system
+      - name: Assert dependency and lockfile alignment
+        run: |
+          node - <<'NODE'
+          const p=require('./package.json'),l=require('./package-lock.json');
+          for(const name of ['expo-document-picker','expo-file-system']){
+            if(!p.dependencies[name]||p.dependencies[name]!==l.packages[''].dependencies[name]||!l.packages['node_modules/'+name])
+              throw Error('Unresolved dependency '+name);
+          }
+          NODE
+      - name: Commit only SDK-compatible package files to development branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m "build: install Expo SDK 58 native video upload modules [skip ci]"
+            git fetch origin aspekt-next
+            git rebase origin/aspekt-next
+            git push origin HEAD:aspekt-next
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk58-native-upload-packages
+          path: |
+            package.json
+            package-lock.json
