@@ -28,12 +28,14 @@ export default function PrivateVideo(){
  if(!(file.type==='video/mp4'?mp4:webm))throw Error('Dateisignatur ungültig');
  const result=await supabase.storage.from('aspekt-video-private').upload(data.user.id+'/'+crypto.randomUUID()+ (mp4?'.mp4':'.webm'),file,{contentType:file.type,upsert:false});
  if(result.error)throw result.error;
+ const registered=await supabase.rpc('video_register_upload',{p_path:result.data.path});
+ if(registered.error)throw registered.error;
  }else{
  const result=await supabase.from('video_creator_profiles').upsert({display_name:name.trim()},{onConflict:'owner_id'});
  if(result.error)throw result.error;
  }
  if(upload)await refresh();
- setStatus(upload?'Privat gespeichert – nicht veröffentlicht.':'Creator-Name gespeichert.');
+ setStatus(upload?'Quarantäne angelegt – Medienprüfung steht aus. Keine Veröffentlichung.':'Creator-Name gespeichert.');
  }catch{setStatus('Aktion fehlgeschlagen. Testserver, Anmeldung und Datei prüfen.');}finally{setBusy(false);}
  }
  return <div style={{color:'#fff',padding:12}}>
