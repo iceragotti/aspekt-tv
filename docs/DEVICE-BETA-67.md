@@ -103,6 +103,28 @@ Changes are restricted to `aspekt-next`; `main` and production Supabase are out 
 
 **Go decision** may be revisited only after a reviewer records exact successful CI run links, separate staging project verification, private-access tests, owner-approved EAS signing, real-device end-to-end tests and rollback procedure. Never infer a GO decision from Vercel status or configuration tests alone.
 
+## Phase 6.8 – Secure Staging & First Device Builds (preparation only)
+
+**Status: NO-GO** for staging deployment and device distribution. Observed successful runs: ASPEKT NEXT quality #129 (fa62fb14...) and Isolated Supabase video integration #56 (98943c2...). Both passed, but they are NOT a matched pair for the phase 6.8 commit.
+
+### Independent HTTPS staging (offline plan)
+
+1. Copy `docs/BETA-STAGING-68.example.json` outside the repository and populate only nonsecret identifiers. Do not commit the populated file, share credentials or include service-role keys.
+2. A trusted owner must independently establish that the staging and production Supabase project references differ. Do not read or modify production data.
+3. Verify staging has separate Auth, DB, Storage, Edge Functions, dummy accounts, HTTPS, private buckets, RLS, file limits, rate limits, worker isolation, quarantine cleanup, logs and revocation controls. Client-side URL validation is not server authorization.
+4. Verify separate beta Android/iOS identifiers and the EAS project owner and signing/provisioning. Do not reuse production app identifiers.
+5. Record successful Quality and Storage CI runs for the exact same final commit. Offline validation only checks strings, not workflow authenticity or infrastructure ownership.
+6. Run `node scripts/check-beta-staging-plan.mjs /path/to/private/nonsecret-plan.json` from a trusted development machine. A pass confirms only the document's structure, NOT launch readiness.
+7. Require a separate explicit human GO decision before changing the origin allowlist, enabling video staging, deploying HTTPS infrastructure or starting/distributing EAS builds.
+
+CI uses `scripts/test-beta-staging-plan.mjs` with invented sample identifiers. It rejects mismatched Supabase references, insecure origins, mixed CI commits, reused app IDs and unexpected fields. No remote service is called.
+
+### First smartphone installation (blocked until approval)
+
+- Android: internal `beta-preview` APK with verified dedicated application ID and beta-only signing.
+- iOS: internal physical-device distribution with separate bundle ID and valid Apple provisioning; a simulator does not replace real-device validation.
+- Test login, picker, MP4/WebM <=20 MiB, real progress, cancellation, network loss, cross-account denial, quarantine, review/publication, signed playback and logout on each platform.
+- Rollback: disable staging feature flags and distribution, isolate the staging endpoint and revoke staging-only credentials/sessions as required; never affect production.
 ## Known beta limitations
 - 20 MiB limit is intentionally small; native selection copies to cache. Very large files and background-resumable uploads are out of scope.
 - Network interruptions can leave an unregistered private Storage object; require a server-side stale-object cleanup process before scaling.
