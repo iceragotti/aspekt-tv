@@ -71,6 +71,28 @@ async function processJob(job) {
   await invoke('video_job_finish',{
    p_job_id:job.job_id,p_lease:job.lease_token,p_output_path:outputPath
   });
+  // Poster generation is optional; failed posters never turn a valid video into rejected content.
+  try {
+   const poster=join(temp,'poster.jpg');
+   await exec('ffmpeg',[
+    '-hide_banner','-loglevel','error','-nostdin','-y','-protocol_whitelist','file',
+    '-i',output,'-frames:v','1','-vf','scale=640:-2','-q:v','5',
+    '-f','image2',poster
+   ],{timeout:20000,maxBuffer:65536,windowsHide:true});
+   const info=await stat(poster);
+   if(!info.isFile()||info.size<64||info.size>2*1024*1024)throw Error('Invalid poster size');
+   const bytes=await readFile(poster);
+   if(bytes[0]!==0xff||bytes[1]!==0xd8||bytes[bytes.length-2]!==0xff||bytes[bytes.length-1]!==0xd9)
+    throw Error('Invalid JPEG markers');
+   const posterPath=`${job.review_id}/${job.lease_token}.jpg`;
+   const {error:posterError}=await db.storage.from(outputBucket).upload(
+    posterPath,new Uint8Array(bytes),{contentType:'image/jpeg',cacheControl:'60',upsert:false}
+   );
+   if(posterError)throw posterError;
+   await invoke('video_set_thumbnail',{p_review_id:job.review_id,p_thumbnail_path:posterPath});
+  }catch(error){
+   console.warn('Optional thumbnail unavailable',job.review_id,String(error?.message??error));
+  }
   console.log('Transcoded private asset for review',job.review_id);
  }catch(error){
   console.error('Worker job failed',job.job_id,String(error?.message??error));
