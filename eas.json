@@ -1,5 +1,7 @@
 {
-  "cli": {"version": ">= 16.0.0"},
+  "cli": {
+    "version": ">= 16.0.0"
+  },
   "build": {
     "development": {
       "developmentClient": true,
@@ -16,6 +18,12 @@
       "env": {
         "EXPO_PUBLIC_VIDEO_STAGING": "false",
         "EXPO_PUBLIC_TRUST_STAGING": "false"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "ios": {
+        "simulator": false
       }
     }
   }
