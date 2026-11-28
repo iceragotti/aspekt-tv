@@ -13,6 +13,7 @@ const bytes=Uint8Array.from([0,0,0,16,102,116,121,112,109,112,52,50]);
 const selected={uri:'file:///cache/test.mp4',name:'test.mp4',size:12,mimeType:'video/mp4'};
 const uploads=[],notices=[];
 let registered=null,loggedIn=true,responseStatus=200;
+let registrationFails=false,metadataFails=false,registrationCalls=0,metadataCalls=0;
 class NativeFile{
  constructor(uri){assert.equal(uri,selected.uri);this.exists=true;this.size=bytes.length;}
  open(mode){
@@ -43,7 +44,9 @@ const supabase={
  },
  rpc:async(name,args)=>{
   assert.equal(name,'video_register_upload');
+  registrationCalls++;
   assert.equal(args.p_path,uploads.at(-1).url.split('/aspekt-video-private/')[1]);
+  if(registrationFails)return {data:null,error:{message:'quarantine unavailable'}};
   return {data:'22222222-2222-4222-8222-222222222222',error:null};
  }
 };
@@ -58,6 +61,8 @@ const runtime={
   if(name==='./supabase')return {supabase};
   if(name==='./privateVideo')return {privateVideoEnabled:true,PRIVATE_VIDEO_BUCKET:'aspekt-video-private'};
   if(name==='./videoPlatform')return {updateVideoMetadata:async(id,title,desc,kind)=>{
+   metadataCalls++;
+   if(metadataFails)throw Error('metadata unavailable');
    registered={id,title,desc,kind};
   }};
   throw Error('Unexpected import '+name);
@@ -105,4 +110,33 @@ await assert.rejects(lib.uploadNativeVideo(lib.validateNativeVideoSelection(sele
  title:'Cancelled',description:'',kind:'video'
 },()=>{},controller.signal));
 assert.equal(uploads.length,2,'Cancelled upload still reached the network');
-console.log('PASS: native picker, signature, byte limits, native progress, auth, cancellation and quarantine');
+// Cancellation while bytes are being sent must not register or save metadata.
+responseStatus=200;
+const midFlight=new AbortController();
+const beforeMidFlight={uploads:uploads.length,registrationCalls,metadataCalls};
+await assert.rejects(lib.uploadNativeVideo(lib.validateNativeVideoSelection(selected),{
+ title:'Mid-flight cancellation',description:'',kind:'video'
+},p=>{if(p.stage==='uploading')midFlight.abort();},midFlight.signal));
+assert.equal(uploads.length,beforeMidFlight.uploads+1);
+assert.equal(registrationCalls,beforeMidFlight.registrationCalls);
+assert.equal(metadataCalls,beforeMidFlight.metadataCalls);
+// A successful Storage response is not sufficient to claim a registered draft.
+registrationFails=true;
+const beforeRegistration={registrationCalls,metadataCalls};
+await assert.rejects(lib.uploadNativeVideo(lib.validateNativeVideoSelection(selected),{
+ title:'Registration fails',description:'',kind:'video'
+},()=>{}),/Quarantäne-Registrierung fehlgeschlagen/);
+assert.equal(registrationCalls,beforeRegistration.registrationCalls+1);
+assert.equal(metadataCalls,beforeRegistration.metadataCalls);
+registrationFails=false;
+// Metadata persistence failure must never report a completed upload.
+metadataFails=true;
+const stages=[];
+const beforeMetadata=metadataCalls;
+await assert.rejects(lib.uploadNativeVideo(lib.validateNativeVideoSelection(selected),{
+ title:'Metadata fails',description:'',kind:'short'
+},p=>stages.push(p.stage)),/metadata unavailable/);
+assert.equal(metadataCalls,beforeMetadata+1);
+assert.ok(!stages.includes('complete'),'Failed metadata was announced as complete');
+metadataFails=false;
+console.log('PASS: native picker, signature, byte limits, progress, authorization, preflight and mid-flight cancellation, registration and metadata failure');
