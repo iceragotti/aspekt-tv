@@ -62,6 +62,33 @@ The `Isolated Supabase video integration` workflow separately exercises real loc
 - **HTTPS staging blocker:** Only after provisioning an independent Supabase project and verifying its project reference, RLS, Storage isolation, TLS, functions, dummy accounts and orphaned-object retention may reviewers approve its exact origin in `src/lib/videoStagingGate.ts`. The origin allowlist remains empty.
 - Do not run `supabase link`, `supabase db push`, `supabase functions deploy`, `eas build`, `eas update`, `eas submit` or any remote migration as part of this preflight. These require a separately approved target and credentials.
 - For go/no-go, obtain successful GitHub quality and Supabase integration results, verify signed upload and cross-account rejection against staging, and complete real device tests. Keep an evidence record and rollback plan.
+## Phase 6.7.4 – Evidence collection / NO DEPLOYMENT
+
+Changes are restricted to `aspekt-next`; `main` and production Supabase are out of scope. No HTTPS deployment or mobile binary is authorized.
+
+### GitHub Actions evidence (operator review)
+
+1. Open the repository's Actions tab and select **ASPEKT NEXT quality** and **Isolated Supabase video integration**, filtered to branch `aspekt-next`.
+2. Record the exact commit SHA, run URL, attempt number, result and timestamps for **app**, **trust**, **media**, and **supabase-storage** jobs.
+3. If a step fails, collect its complete failing step log and fix only the verified issue on `aspekt-next`; recheck the next run for the matching SHA.
+4. A Vercel SUCCESS is not GitHub Actions SUCCESS. PR-only GitHub queries returning an empty array do not establish whether push-triggered jobs passed or failed.
+
+### Independent HTTPS Supabase staging — approval checklist
+
+- A separate project owner must confirm the staging Supabase project reference is distinct from production; record only non-secret identifiers internally.
+- Validate HTTPS/TLS, isolate Auth/DB/Storage/Edge Functions, enforce private buckets and RLS, set limits and cleanup policy, disable public delivery until tested, and never use real users/data.
+- Have a second reviewer compare the staging project ref against the production ref without putting credentials in Git or chat. Review migrations before using any remote administration command.
+- After security approval, explicitly update the HTTPS origin allowlist and configure beta-only public keys through protected environment settings. The current allowlist is empty; no production URL is authorized.
+
+### Mobile beta — manual prerequisites
+
+- Assign dedicated beta iOS bundle ID and Android application ID after ownership checks. Assign a separate EAS project and protected signing credentials. iOS distribution additionally needs valid device provisioning or an approved TestFlight track.
+- Android internal preview is configured as APK; iOS preview targets real devices. Both profiles keep video staging off until all release gates pass.
+- Run physical-device upload, cancellation, offline/resume handling, cross-account denial, quarantine review and private playback tests; document each observation.
+
+### Read-only release preflight
+
+`node scripts/preflight-beta-release.mjs` intentionally exits with status 1 and enumerates unverified requirements. It performs no network calls or deployments. It is not part of the green CI path, and cannot be used as an approval certificate.
 ## Known beta limitations
 - 20 MiB limit is intentionally small; native selection copies to cache. Very large files and background-resumable uploads are out of scope.
 - Network interruptions can leave an unregistered private Storage object; require a server-side stale-object cleanup process before scaling.
