@@ -41,7 +41,7 @@ begin
   or length(coalesce(p_description,''))>2000 or p_kind not in ('video','short')
  then raise exception 'Invalid metadata' using errcode='42501'; end if;
  select * into r from public.video_review where id=p_review_id for update;
- if not found or r.owner_id<>auth.uid() or r.state='rejected'
+ if not found or r.owner_id<>auth.uid() or r.state not in ('quarantine','validated')
    or exists(select 1 from public.video_publications p
              where p.review_id=p_review_id and p.revoked_at is null)
  then raise exception 'Not editable' using errcode='42501'; end if;
