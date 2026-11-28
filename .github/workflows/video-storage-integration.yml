@@ -55,6 +55,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128072000_video_platform.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128073000_video_platform_publish_gate.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128074000_video_creator_unpublish.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128080000_video_beta_catalog.sql" supabase/migrations/
           mkdir -p supabase/functions/video-playback
           cp "$GITHUB_WORKSPACE/supabase/functions/video-playback/index.ts" supabase/functions/video-playback/index.ts
           echo "VIDEO_CI_DIR=$RUNNER_TEMP/aspekt-video-ci" >> "$GITHUB_ENV"
