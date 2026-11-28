@@ -24,6 +24,11 @@ Deno.serve(async request=>{
    return new Response('{"error":"unavailable"}',{status:404,headers});
   const {data,error}=await db.storage.from('aspekt-video-processed').createSignedUrl(review.processed_path,60);
   if(error||!data?.signedUrl)return new Response('{"error":"unavailable"}',{status:404,headers});
-  return new Response(JSON.stringify({url:data.signedUrl,expiresIn:60}),{status:200,headers});
+  const signed=new URL(data.signedUrl);
+  const expected='/storage/v1/object/sign/aspekt-video-processed/';
+  if(!signed.pathname.startsWith(expected)||!signed.searchParams.has('token'))
+   return new Response('{"error":"unavailable"}',{status:404,headers});
+  // Relative path prevents leaking internal Docker hostnames to the browser.
+  return new Response(JSON.stringify({path:signed.pathname+signed.search,expiresIn:60}),{status:200,headers});
  }catch{return new Response('{"error":"unavailable"}',{status:404,headers});}
 });
