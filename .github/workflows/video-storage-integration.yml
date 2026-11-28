@@ -18,6 +18,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/video-storage-integration.yml'
+concurrency:
+  group: aspekt-next-video-integration-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
