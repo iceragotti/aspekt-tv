@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: node -e "const p=require('./package.json'),l=require('./package-lock.json');if(p.dependencies['expo-video']!==l.packages[''].dependencies['expo-video'])process.exit(1)"
       - run: node scripts/test-beta-build-config.mjs
+      - run: node scripts/test-beta-staging-plan.mjs
       - run: node scripts/test-video-staging-gate.mjs
       - run: node scripts/test-native-video-upload.mjs
       - run: npx --no-install tsc --noEmit
