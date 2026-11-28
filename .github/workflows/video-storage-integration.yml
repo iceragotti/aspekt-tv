@@ -11,6 +11,8 @@ on:
       - 'scripts/validate-video.mjs'
       - 'supabase/migrations/*video*.sql'
       - 'src/lib/privateVideo.ts'
+      - 'src/lib/nativeVideoUpload.ts'
+      - 'scripts/test-native-video-upload.mjs'
       - 'src/lib/videoPlatform.ts'
       - 'src/components/VideoCenter.tsx'
       - 'src/components/PublicVideo*.tsx'
