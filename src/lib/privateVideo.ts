@@ -2,13 +2,12 @@ import {supabase, isSupabaseConfigured} from './supabase';
 
 export const PRIVATE_VIDEO_BUCKET = 'aspekt-video-private';
 export type PrivateVideoFile = {name:string;path:string};
-const stageUrl = process.env.EXPO_PUBLIC_VIDEO_STAGING_URL;
+const stageUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 export const privateVideoEnabled =
   process.env.EXPO_PUBLIC_VIDEO_STAGING === 'true' &&
   isSupabaseConfigured &&
-  typeof stageUrl === 'string' && stageUrl.length > 0 &&
-  stageUrl === process.env.EXPO_PUBLIC_SUPABASE_URL;
-// Stage URL must be a dedicated non-production Supabase project, or loopback.
+  typeof stageUrl === 'string' && /^http:\/\/(localhost|127\.0\.0\.1):54321\/?$/.test(stageUrl);
+// Strict loopback only: prevent accidental use with production Supabase URLs.
 // This client flag is not a security boundary; RLS must enforce ownership.
 
 async function userId():Promise<string>{
