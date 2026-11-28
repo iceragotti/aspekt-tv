@@ -44,7 +44,28 @@ async function expectFailure(fn,message){
 }
 assert.equal(ok(await server.storage.getBucket(bucket),'get bucket').public,false,'Video bucket must remain private');
 const video=new Uint8Array(await readFile(sample));
-ok(await owner.db.storage.from(bucket).upload(path,video,{contentType:'video/mp4',upsert:false}),'upload valid');
+// Native Expo File.upload uses this exact binary POST, owner JWT and x-upsert=false.
+const {data:ownerSession}=await owner.db.auth.getSession();
+const {data:otherSession}=await other.db.auth.getSession();
+assert.ok(ownerSession.session?.access_token && otherSession.session?.access_token);
+const nativeHeaders={
+ apikey:anonKey,Authorization:'Bearer '+ownerSession.session.access_token,
+ 'Content-Type':'video/mp4','x-upsert':'false'
+};
+const direct=await fetch(url+'/storage/v1/object/'+bucket+'/'+path,{
+ method:'POST',headers:nativeHeaders,body:Buffer.from(video)
+});
+assert.ok(direct.ok,'Native-style binary upload failed: HTTP '+direct.status);
+const repeated=await fetch(url+'/storage/v1/object/'+bucket+'/'+path,{
+ method:'POST',headers:nativeHeaders,body:Buffer.from(video)
+});
+assert.ok(!repeated.ok,'Repeated upload overwrote an owner file');
+const foreign=await fetch(url+'/storage/v1/object/'+bucket+'/'+owner.id+'/'+randomUUID()+'.mp4',{
+ method:'POST',
+ headers:{...nativeHeaders,Authorization:'Bearer '+otherSession.session.access_token},
+ body:Buffer.from(video)
+});
+assert.ok(!foreign.ok,'Foreign account wrote into the owner folder');
 ok(await owner.db.storage.from(bucket).upload(invalidPath,new Uint8Array(24),{contentType:'video/webm',upsert:false}),'upload malformed');
 // Storage API isolation with real JWTs
 const files=ok(await owner.db.storage.from(bucket).list(owner.id),'owner list');
