@@ -109,3 +109,17 @@ jobs:
             cd "$RUNNER_TEMP/aspekt-video-ci"
             supabase stop --no-backup || true
           fi
+      - name: Record isolated storage integration evidence
+        if: always()
+        env:
+          CI_JOB_STATUS: ${{ job.status }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_COMMIT: ${{ github.sha }}
+        run: |
+          echo "### ASPEKT NEXT isolated Supabase storage – CI evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Branch: aspekt-next" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $CI_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/attempts/$CI_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job state: $CI_JOB_STATUS" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Uses disposable local Supabase; not production staging certification." >> "$GITHUB_STEP_SUMMARY"
