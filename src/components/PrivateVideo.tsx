@@ -6,7 +6,7 @@ import {supabase} from '../lib/supabase';
 import {loadVideoCreatorName, saveVideoCreatorName} from '../lib/videoCreatorProfile';
 
 /** Private media is only available with local Supabase and owner-scoped Storage RLS. */
-export default function PrivateVideo() {
+export default function PrivateVideo(_props:{onUploaded?:()=>void}={}) {
   const player = useVideoPlayer(null);
   const [files,setFiles]=useState<PrivateVideoFile[]>([]);
   const [creatorName,setCreatorName]=useState('');
