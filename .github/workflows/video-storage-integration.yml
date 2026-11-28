@@ -51,6 +51,8 @@ jobs:
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128070000_video_processing_publication.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128072000_video_platform.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128073000_video_platform_publish_gate.sql" supabase/migrations/
+          mkdir -p supabase/functions/video-playback
+          cp "$GITHUB_WORKSPACE/supabase/functions/video-playback/index.ts" supabase/functions/video-playback/index.ts
           echo "VIDEO_CI_DIR=$RUNNER_TEMP/aspekt-video-ci" >> "$GITHUB_ENV"
       - name: Start temporary real Supabase Auth and Storage services
         working-directory: ${{ env.VIDEO_CI_DIR }}
@@ -71,6 +73,21 @@ jobs:
           export SUPABASE_ANON_KEY="$ANON_KEY"
           export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
           export ASPEKT_VIDEO_FIXTURE="$RUNNER_TEMP/aspekt-video-fixture.mp4"
+          printf 'VIDEO_PUBLIC_DELIVERY_ENABLED=true\\n' > "$VIDEO_CI_DIR/video-playback.env"
+          (
+            cd "$VIDEO_CI_DIR"
+            supabase functions serve video-playback --no-verify-jwt --env-file video-playback.env
+          ) > "$RUNNER_TEMP/aspekt-edge.log" 2>&1 &
+          edge_pid=$!
+          trap 'kill "$edge_pid" 2>/dev/null || true' EXIT
+          export ASPEKT_EDGE_TEST_URL="http://127.0.0.1:54321/functions/v1/video-playback"
+          ready=0
+          for i in $(seq 1 40); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' "$ASPEKT_EDGE_TEST_URL?id=invalid" || true)
+            if [ "$code" = "400" ]; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then cat "$RUNNER_TEMP/aspekt-edge.log"; exit 1; fi
           node scripts/test-video-storage.mjs
       - name: Stop disposable Supabase project
         if: always()
