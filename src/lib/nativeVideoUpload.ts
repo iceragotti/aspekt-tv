@@ -1,5 +1,5 @@
 import * as DocumentPicker from 'expo-document-picker';
-import {File} from 'expo-file-system';
+import {File,UploadType,FileMode} from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 import {supabase} from './supabase';
 import {privateVideoEnabled,PRIVATE_VIDEO_BUCKET} from './privateVideo';
@@ -64,46 +64,41 @@ export async function uploadNativeVideo(
  const local=new File(accepted.uri);
  if(!local.exists||local.size!==accepted.size||local.size>MAX_BETA_VIDEO_BYTES)
   throw Error('Dateigröße geändert; erneut auswählen');
- const bytes=await local.arrayBuffer();
- if(bytes.byteLength!==accepted.size||!sniffVideoHeader(new Uint8Array(bytes,0,Math.min(16,bytes.byteLength)),accepted.mime))
+ const handle=local.open(FileMode.ReadOnly);
+ let head:Uint8Array;
+ try{head=handle.readBytesSync(12);}finally{handle.close();}
+ if(!sniffVideoHeader(head,accepted.mime))
   throw Error('Videodatei ist beschädigt oder kein unterstütztes Format');
  if(signal?.aborted)throw Error('Upload abgebrochen');
  const fileName=Crypto.randomUUID();
  const path=auth.user.id+'/'+fileName+(accepted.mime==='video/mp4'?'.mp4':'.webm');
  const url=process.env.EXPO_PUBLIC_SUPABASE_URL!;
  const anon=process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
- // Storage API is the real upload target. Progress is measured from XHR bytes,
- // not simulated timers. RLS checks the owner folder and bucket.
- await new Promise<void>((resolve,reject)=>{
-  const req=new XMLHttpRequest();
-  let settled=false;
-  const fail=(message:string)=>{
-   if(settled)return;settled=true;reject(Error(message));
-  };
-  const cancel=()=>{req.abort();fail('Upload abgebrochen');};
-  signal?.addEventListener('abort',cancel,{once:true});
-  req.open('POST',url+'/storage/v1/object/'+PRIVATE_VIDEO_BUCKET+'/'+path);
-  req.setRequestHeader('apikey',anon);
-  req.setRequestHeader('Authorization','Bearer '+session.session!.access_token);
-  req.setRequestHeader('Content-Type',accepted.mime);
-  req.setRequestHeader('x-upsert','false');
-  req.timeout=120000;
-  req.upload.onprogress=(event)=>{
-   if(event.lengthComputable&&event.total>0){
-    progress({stage:'uploading',percent:Math.min(99,Math.floor(100*event.loaded/event.total))});
+ // Expo SDK 58 performs binary upload on native networking threads.
+ // We do not copy a 20 MiB video through the JavaScript networking bridge.
+ const task=local.createUploadTask(
+  url+'/storage/v1/object/'+PRIVATE_VIDEO_BUCKET+'/'+path,{
+   httpMethod:'POST',
+   uploadType:UploadType.BINARY_CONTENT,
+   mimeType:accepted.mime,
+   headers:{
+    apikey:anon,
+    Authorization:'Bearer '+session.session.access_token,
+    'Content-Type':accepted.mime,
+    'x-upsert':'false'
+   },
+   signal,
+   onProgress:({bytesSent,totalBytes})=>{
+    if(totalBytes>0)progress({
+     stage:'uploading',percent:Math.min(99,Math.floor(100*bytesSent/totalBytes))
+    });
    }
-  };
-  req.onerror=()=>fail('Netzwerkfehler beim Upload');
-  req.ontimeout=()=>fail('Upload-Zeitlimit erreicht');
-  req.onabort=()=>fail('Upload abgebrochen');
-  req.onload=()=>{
-   signal?.removeEventListener('abort',cancel);
-   if(settled)return;
-   if(req.status<200||req.status>=300)fail('Speicherung fehlgeschlagen (HTTP '+req.status+')');
-   else{settled=true;resolve();}
-  };
-  try{req.send(bytes);}catch{fail('Video konnte nicht hochgeladen werden');}
- });
+  }
+ );
+ const result=await task.uploadAsync();
+ if(result.status<200||result.status>=300)
+  throw Error('Speicherung fehlgeschlagen (HTTP '+result.status+')');
+ if(signal?.aborted)throw Error('Upload abgebrochen');
  progress({stage:'quarantine',percent:100});
  // Quarantine registration and editable metadata never imply public release.
  const {data:reviewId,error:registeredError}=await supabase.rpc('video_register_upload',{p_path:path});
