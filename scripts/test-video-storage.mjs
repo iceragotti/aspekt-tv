@@ -72,6 +72,33 @@ const updatedProfile=ok(await owner.db.from('video_creator_profiles').select('di
 assert.equal(updatedProfile.display_name,'ASPEKT Updated Creator','Creator profile changes must persist');
 const otherProfiles=ok(await other.db.from('video_creator_profiles').select('owner_id'),'other creator visibility');
 assert.equal(otherProfiles.length,0,'Creator profile exposed to other accounts');
+// Phase 6.5: persistent channel and editable owner metadata.
+ok(await owner.db.from('video_channels').insert({
+ handle:'aspekt-'+randomUUID().slice(0,8),
+ display_name:'ASPEKT Creator Channel',description:'Independent voices'
+}),'create persistent channel');
+const channel=ok(await owner.db.from('video_channels')
+ .select('handle,display_name').single(),'own channel');
+assert.equal(channel.display_name,'ASPEKT Creator Channel');
+const outsiderChannel=ok(await other.db.from('video_channels').select('handle'),'private channel');
+assert.equal(outsiderChannel.length,0,'Private creator channel leaked');
+ok(await owner.db.from('video_channels').update({display_name:'ASPEKT Updated Channel'})
+ .eq('handle',channel.handle),'channel update');
+const updatedChannel=ok(await owner.db.from('video_channels')
+ .select('display_name').single(),'updated channel');
+assert.equal(updatedChannel.display_name,'ASPEKT Updated Channel');
+ok(await owner.db.rpc('video_save_metadata',{
+ p_review_id:registered,p_title:'Erstes echtes Video',p_description:'ASPEKT NEXT 6.5',p_kind:'video'
+}),'save owned video metadata');
+await expectFailure(()=>other.db.rpc('video_save_metadata',{
+ p_review_id:registered,p_title:'Manipuliert',p_description:'',p_kind:'video'
+}),'Foreign owner edited video');
+const privateLibrary=ok(await owner.db.rpc('video_my_library'),'owner video library');
+assert.ok(privateLibrary.some(v=>v.id===registered&&v.title==='Erstes echtes Video'&&v.status==='quarantine'));
+const otherLibrary=ok(await other.db.rpc('video_my_library'),'other library');
+assert.equal(otherLibrary.length,0,'Owner library leaked');
+const catalogBefore=ok(await other.db.rpc('video_public_catalog'),'unpublished catalog');
+assert.equal(catalogBefore.length,0,'Unapproved video appeared in public catalog');
 const workerEnv={...process.env,SUPABASE_URL:url,SUPABASE_SERVICE_ROLE_KEY:serviceKey};
 await exec(process.execPath,['scripts/video-worker.mjs','--drain'],{env:workerEnv,timeout:60000,maxBuffer:131072,cwd:process.cwd()});
 const {data:processed}=await server.from('video_review').select('id,object_path,state,processed_path').in('object_path',[path,invalidPath]);
@@ -98,12 +125,22 @@ const approved=ok(await server.from('video_review').select('state').eq('id',regi
 assert.equal(approved.state,'approved');
 await expectFailure(()=>owner.db.rpc('video_publish',{p_review_id:registered}),'Creator published own video');
 ok(await reviewer.db.rpc('video_publish',{p_review_id:registered}),'publish approved asset');
+const publicCatalog=ok(await other.db.rpc('video_public_catalog'),'active public catalog');
+assert.equal(publicCatalog.length,1,'Published video absent from public catalog');
+assert.equal(publicCatalog[0].title,'Erstes echtes Video');
+assert.equal(publicCatalog[0].channel_handle,channel.handle);
+assert.ok(!JSON.stringify(publicCatalog).includes('processed_path'),'Private asset path leaked in catalog');
+await expectFailure(()=>owner.db.rpc('video_save_metadata',{
+ p_review_id:registered,p_title:'Silent edit',p_description:'',p_kind:'video'
+}),'Published metadata changed without review');
 const listing=ok(await server.from('video_publications').select('revoked_at').eq('review_id',registered).single(),'publication record');
 assert.equal(listing.revoked_at,null,'Publication is inactive');
 await expectFailure(()=>owner.db.storage.from('aspekt-video-processed').download(accepted.processed_path),'Published bytes exposed through private Storage');
 ok(await reviewer.db.rpc('video_revoke',{p_review_id:registered}),'revoke publication');
 const revoked=ok(await server.from('video_publications').select('revoked_at').eq('review_id',registered).single(),'revoked record');
 assert.ok(revoked.revoked_at,'Revocation not recorded');
+const catalogAfterRevoke=ok(await other.db.rpc('video_public_catalog'),'revoked catalog');
+assert.equal(catalogAfterRevoke.length,0,'Revoked video still discoverable');
 const stored=ok(await server.storage.getBucket(bucket),'postapproval bucket');
 assert.equal(stored.public,false,'Approval must not make bucket public');
 console.log('PASS: real auth, private Storage RLS, video transcoding, leases, retry-safe processing, creator profiles and moderation-gated publication');
