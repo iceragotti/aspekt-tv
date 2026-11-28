@@ -159,6 +159,16 @@ if(edgeUrl){
 }
 const catalogAfterRevoke=ok(await other.db.rpc('video_public_catalog'),'revoked catalog');
 assert.equal(catalogAfterRevoke.length,0,'Revoked video still discoverable');
+ok(await reviewer.db.rpc('video_publish',{p_review_id:registered}),'republish after independent approval');
+await expectFailure(()=>other.db.rpc('video_creator_unpublish',{p_review_id:registered}),'Outsider withdrew creator video');
+ok(await owner.db.rpc('video_creator_unpublish',{p_review_id:registered}),'creator withdrawal');
+const afterOwnerWithdrawal=ok(await other.db.rpc('video_public_catalog'),'catalog after owner withdrawal');
+assert.equal(afterOwnerWithdrawal.length,0,'Creator withdrawal did not remove video from catalog');
+if(edgeUrl){
+ const denied=await fetch(edgeUrl+'?id='+registered);
+ assert.equal(denied.status,404,'Creator withdrawal failed to block new playback URLs');
+}
+
 const stored=ok(await server.storage.getBucket(bucket),'postapproval bucket');
 assert.equal(stored.public,false,'Approval must not make bucket public');
 console.log('PASS: real auth, private Storage RLS, video transcoding, leases, retry-safe processing, creator profiles and moderation-gated publication');
