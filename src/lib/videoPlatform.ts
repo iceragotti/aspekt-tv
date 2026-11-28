@@ -3,11 +3,11 @@ import {privateVideoEnabled} from './privateVideo';
 
 export type VideoEntry={
  id:string;title:string;description:string;kind:'video'|'short';
- status:string;published:boolean;created_at:string;
+ status:string;published:boolean;created_at:string;has_thumbnail:boolean;
 };
 export type PublicVideoEntry={
  id:string;title:string;description:string;kind:'video'|'short';
- channel_handle:string;channel_name:string;channel_description:string;published_at:string;
+ channel_handle:string;channel_name:string;channel_description:string;published_at:string;has_thumbnail:boolean;
 };
 export type VideoChannel={owner_id:string;handle:string;display_name:string;description:string};
 
@@ -46,6 +46,27 @@ export async function publicVideoCatalog():Promise<PublicVideoEntry[]>{
  const {data,error}=await supabase.rpc('video_public_catalog');
  if(error)throw error;
  return (data??[]) as PublicVideoEntry[];
+}
+export async function searchReleasedVideos(term:string,handle?:string,kind?:'video'|'short'):Promise<PublicVideoEntry[]>{
+ assertStage();
+ const {data,error}=await supabase.rpc('video_search',{
+  p_term:term.trim().slice(0,80),p_handle:handle??null,p_kind:kind??null
+ });
+ if(error)throw Error(error.message);
+ return (data??[]) as PublicVideoEntry[];
+}
+export async function approvedVideoThumbnail(id:string):Promise<string>{
+ assertStage();
+ if(!/^[0-9a-f-]{36}$/.test(id))throw Error('Ungültiges Video');
+ const base=process.env.EXPO_PUBLIC_SUPABASE_URL!;
+ const res=await fetch(base+'/functions/v1/video-playback?id='+encodeURIComponent(id)+'&media=thumbnail');
+ if(!res.ok)throw Error('Poster nicht freigegeben');
+ const payload=await res.json() as {path?:string;expiresIn?:number};
+ if(!payload.path||payload.expiresIn!==60)throw Error('Ungültiger Poster-Link');
+ const url=new URL(payload.path,base);
+ if(url.origin!==new URL(base).origin||!url.pathname.startsWith('/storage/v1/object/sign/aspekt-video-processed/')||!url.searchParams.has('token'))
+  throw Error('Posterquelle nicht erlaubt');
+ return url.toString();
 }
 export async function updateVideoMetadata(id:string,title:string,description:string,kind:'video'|'short'):Promise<void>{
  assertStage();
