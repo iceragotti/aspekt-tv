@@ -6,6 +6,8 @@ on:
     paths:
       - 'scripts/test-video-storage.mjs'
       - 'scripts/process-video-quarantine.mjs'
+      - 'scripts/video-worker.mjs'
+      - 'supabase/functions/video-playback/**'
       - 'scripts/validate-video.mjs'
       - 'supabase/migrations/*video*.sql'
       - 'src/lib/privateVideo.ts'
@@ -43,6 +45,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128062000_video_engine.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128063000_video_review.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128065000_video_register_upload.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128070000_video_processing_publication.sql" supabase/migrations/
           echo "VIDEO_CI_DIR=$RUNNER_TEMP/aspekt-video-ci" >> "$GITHUB_ENV"
       - name: Start temporary real Supabase Auth and Storage services
         working-directory: ${{ env.VIDEO_CI_DIR }}
