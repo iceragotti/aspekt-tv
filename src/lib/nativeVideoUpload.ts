@@ -1,5 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import {File} from 'expo-file-system';
+import * as Crypto from 'expo-crypto';
 import {supabase} from './supabase';
 import {privateVideoEnabled,PRIVATE_VIDEO_BUCKET} from './privateVideo';
 import {updateVideoMetadata} from './videoPlatform';
@@ -19,7 +20,7 @@ export function validateNativeVideoSelection(asset:{
  const mime=ext==='mp4'?'video/mp4':'video/webm';
  if(asset.mimeType && asset.mimeType!==mime && asset.mimeType!=='application/octet-stream')
   throw Error('Dateityp und Endung stimmen nicht überein');
- if(!Number.isFinite(asset.size)||!(asset.size!>=12)||asset.size!>MAX_BETA_VIDEO_BYTES)
+ if(typeof asset.size!=='number'||!Number.isFinite(asset.size)||asset.size<12||asset.size>MAX_BETA_VIDEO_BYTES)
   throw Error('Video muss zwischen 12 Bytes und 20 MiB groß sein');
  if(!asset.uri.startsWith('file://'))throw Error('Kein lokaler Cache-Zugriff verfügbar');
  return {uri:asset.uri,name,size:asset.size!,mime};
@@ -67,8 +68,7 @@ export async function uploadNativeVideo(
  if(bytes.byteLength!==accepted.size||!sniffVideoHeader(new Uint8Array(bytes,0,Math.min(16,bytes.byteLength)),accepted.mime))
   throw Error('Videodatei ist beschädigt oder kein unterstütztes Format');
  if(signal?.aborted)throw Error('Upload abgebrochen');
- const fileName=globalThis.crypto?.randomUUID?.();
- if(!fileName)throw Error('Sichere Upload-ID nicht verfügbar');
+ const fileName=Crypto.randomUUID();
  const path=auth.user.id+'/'+fileName+(accepted.mime==='video/mp4'?'.mp4':'.webm');
  const url=process.env.EXPO_PUBLIC_SUPABASE_URL!;
  const anon=process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
