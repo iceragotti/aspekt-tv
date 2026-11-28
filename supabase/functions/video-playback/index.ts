@@ -13,16 +13,31 @@ Deno.serve(async request=>{
  try {
   const requestUrl=new URL(request.url);
   const id=requestUrl.searchParams.get('id')??'';
+  const media=requestUrl.searchParams.get('media')??'video';
+  if(media!=='video'&&media!=='thumbnail')return new Response('{"error":"invalid_media"}',{status:400,headers});
   if(!/^[0-9a-f-]{36}$/.test(id))return new Response('{"error":"invalid_id"}',{status:400,headers});
   const {data:publication,error:readError}=await db.from('video_publications')
    .select('review_id,revoked_at').eq('review_id',id).is('revoked_at',null).maybeSingle();
   if(readError||!publication)return new Response('{"error":"unavailable"}',{status:404,headers});
   const {data:review,error:reviewError}=await db.from('video_review')
-   .select('state,processed_path').eq('id',id).eq('state','approved').maybeSingle();
+   .select('state,processed_path,thumbnail_path').eq('id',id).eq('state','approved').maybeSingle();
   if(reviewError||!review?.processed_path)return new Response('{"error":"unavailable"}',{status:404,headers});
   if(!new RegExp('^'+id+'/[0-9a-f-]{36}[.]mp4$').test(review.processed_path))
    return new Response('{"error":"unavailable"}',{status:404,headers});
-  const {data,error}=await db.storage.from('aspekt-video-processed').createSignedUrl(review.processed_path,60);
+  const path=media==='thumbnail'?review.thumbnail_path:review.processed_path;
+  if(!path || (media==='thumbnail'&&!new RegExp('^'+id+'/[0-9a-f-]{36}[.]jpg
+  if(error||!data?.signedUrl)return new Response('{"error":"unavailable"}',{status:404,headers});
+  const signed=new URL(data.signedUrl);
+  const expected='/storage/v1/object/sign/aspekt-video-processed/';
+  if(!signed.pathname.startsWith(expected)||!signed.searchParams.has('token'))
+   return new Response('{"error":"unavailable"}',{status:404,headers});
+  // Relative path prevents leaking internal Docker hostnames to the browser.
+  return new Response(JSON.stringify({path:signed.pathname+signed.search,expiresIn:60}),{status:200,headers});
+ }catch{return new Response('{"error":"unavailable"}',{status:404,headers});}
+});
+).test(path)))
+   return new Response('{"error":"unavailable"}',{status:404,headers});
+  const {data,error}=await db.storage.from('aspekt-video-processed').createSignedUrl(path,60);
   if(error||!data?.signedUrl)return new Response('{"error":"unavailable"}',{status:404,headers});
   const signed=new URL(data.signedUrl);
   const expected='/storage/v1/object/sign/aspekt-video-processed/';
