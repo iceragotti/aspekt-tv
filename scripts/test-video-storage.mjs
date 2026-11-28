@@ -102,6 +102,9 @@ if(edgeUrl){
  const forbidden=await fetch(edgeUrl+'?id='+registered);
  assert.equal(forbidden.status,404,'Unpublished media returned a playback link');
 }
+const anonymous=client();
+const guestBefore=ok(await anonymous.rpc('video_public_catalog'),'anonymous catalog before publication');
+assert.equal(guestBefore.length,0,'Unpublished video visible to anonymous users');
 const catalogBefore=ok(await other.db.rpc('video_public_catalog'),'unpublished catalog');
 assert.equal(catalogBefore.length,0,'Unapproved video appeared in public catalog');
 const workerEnv={...process.env,SUPABASE_URL:url,SUPABASE_SERVICE_ROLE_KEY:serviceKey};
@@ -146,6 +149,8 @@ const publicCatalog=ok(await other.db.rpc('video_public_catalog'),'active public
 assert.equal(publicCatalog.length,1,'Published video absent from public catalog');
 assert.equal(publicCatalog[0].title,'Erstes echtes Video');
 assert.equal(publicCatalog[0].channel_handle,channel.handle);
+const guestCatalog=ok(await anonymous.rpc('video_public_catalog'),'anonymous published catalog');
+assert.equal(guestCatalog.length,1,'Guest cannot discover published videos');
 assert.ok(!JSON.stringify(publicCatalog).includes('processed_path'),'Private asset path leaked in catalog');
 await expectFailure(()=>owner.db.rpc('video_save_metadata',{
  p_review_id:registered,p_title:'Silent edit',p_description:'',p_kind:'video'
@@ -162,6 +167,8 @@ if(edgeUrl){
 }
 const catalogAfterRevoke=ok(await other.db.rpc('video_public_catalog'),'revoked catalog');
 assert.equal(catalogAfterRevoke.length,0,'Revoked video still discoverable');
+const guestAfterRevoke=ok(await anonymous.rpc('video_public_catalog'),'anonymous catalog after revoke');
+assert.equal(guestAfterRevoke.length,0,'Guest can still discover revoked content');
 ok(await reviewer.db.rpc('video_publish',{p_review_id:registered}),'republish after independent approval');
 await expectFailure(()=>other.db.rpc('video_creator_unpublish',{p_review_id:registered}),'Outsider withdrew creator video');
 ok(await owner.db.rpc('video_creator_unpublish',{p_review_id:registered}),'creator withdrawal');
