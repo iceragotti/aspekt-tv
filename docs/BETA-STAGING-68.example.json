@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "environment": "aspekt-next-beta",
+  "stagingSupabaseProjectRef": "",
+  "productionSupabaseProjectRef": "",
+  "stagingSupabaseUrl": "",
+  "easProjectId": "",
+  "iosBundleIdentifier": "",
+  "productionIosBundleIdentifier": "",
+  "androidApplicationId": "",
+  "productionAndroidApplicationId": "",
+  "targetCommitSha": "",
+  "qualityCommitSha": "",
+  "storageCommitSha": "",
+  "reviewedBy": ""
+}
