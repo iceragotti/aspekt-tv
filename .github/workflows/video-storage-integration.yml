@@ -1,0 +1,62 @@
+name: Isolated Supabase video integration
+on:
+  workflow_dispatch:
+  push:
+    branches: [aspekt-next]
+    paths:
+      - 'scripts/test-video-storage.mjs'
+      - '.github/workflows/video-storage-integration.yml'
+permissions:
+  contents: read
+jobs:
+  supabase-storage:
+    if: github.ref == 'refs/heads/aspekt-next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: supabase/setup-cli@v3
+        with:
+          version: ^2
+      - name: Prepare disposable Supabase project (never linked to production)
+        run: |
+          mkdir -p "$RUNNER_TEMP/aspekt-video-ci"
+          cd "$RUNNER_TEMP/aspekt-video-ci"
+          supabase init
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128023000_trust_justice.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128060000_video_drafts.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128062000_video_engine.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128063000_video_review.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128065000_video_register_upload.sql" supabase/migrations/
+          echo "VIDEO_CI_DIR=$RUNNER_TEMP/aspekt-video-ci" >> "$GITHUB_ENV"
+      - name: Start temporary real Supabase Auth and Storage services
+        working-directory: ${{ env.VIDEO_CI_DIR }}
+        run: |
+          supabase start
+          supabase status -o env > "$RUNNER_TEMP/aspekt-video-local.env"
+      - name: Generate valid media fixture
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=64x64:d=1 -an -c:v libx264 -pix_fmt yuv420p "$RUNNER_TEMP/aspekt-video-fixture.mp4"
+      - name: Run actual Supabase API isolation, validation and review tests
+        run: |
+          set -a
+          source "$RUNNER_TEMP/aspekt-video-local.env"
+          set +a
+          export SUPABASE_URL="${API_URL:-http://127.0.0.1:54321}"
+          export SUPABASE_ANON_KEY="$ANON_KEY"
+          export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+          export ASPEKT_VIDEO_FIXTURE="$RUNNER_TEMP/aspekt-video-fixture.mp4"
+          node scripts/test-video-storage.mjs
+      - name: Stop disposable Supabase project
+        if: always()
+        working-directory: ${{ env.VIDEO_CI_DIR }}
+        run: supabase stop --no-backup || true
