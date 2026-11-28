@@ -2,12 +2,16 @@ import React,{useEffect,useState} from 'react';
 import {supabase} from '../lib/supabase';
 import {listMyPrivateVideos,signedPrivatePlayback,privateVideoEnabled,type PrivateVideoFile} from '../lib/privateVideo';
 import {loadVideoCreatorName,saveVideoCreatorName} from '../lib/videoCreatorProfile';
+import {updateVideoMetadata} from '../lib/videoPlatform';
 export default function PrivateVideo(){
  const [file,setFile]=useState<File|null>(null);
  const [url,setUrl]=useState('');
  const [status,setStatus]=useState('');
  const [busy,setBusy]=useState(false);
  const [name,setName]=useState('');
+ const [uploadTitle,setUploadTitle]=useState('');
+ const [uploadDescription,setUploadDescription]=useState('');
+ const [uploadKind,setUploadKind]=useState<'video'|'short'>('video');
  const [files,setFiles]=useState<PrivateVideoFile[]>([]);
  const [privateUrl,setPrivateUrl]=useState('');
  const enabled=privateVideoEnabled;
@@ -23,6 +27,7 @@ export default function PrivateVideo(){
  if(error||!data.user)throw Error('Anmeldung erforderlich');
  if(upload){
  if(!file||file.size>20971520||!['video/mp4','video/webm'].includes(file.type))throw Error('Ungültige Datei');
+ if(!uploadTitle.trim()||uploadTitle.trim().length>120)throw Error('Titel erforderlich');
  const bytes=new Uint8Array(await file.slice(0,12).arrayBuffer());
  const mp4=bytes.length>=8&&String.fromCharCode(...bytes.slice(4,8))==='ftyp';
  const webm=bytes[0]===26&&bytes[1]===69&&bytes[2]===223&&bytes[3]===163;
@@ -31,6 +36,8 @@ export default function PrivateVideo(){
  if(result.error)throw result.error;
  const registered=await supabase.rpc('video_register_upload',{p_path:result.data.path});
  if(registered.error)throw registered.error;
+ await updateVideoMetadata(registered.data as string,uploadTitle.trim(),uploadDescription,uploadKind);
+ setUploadTitle('');setUploadDescription('');
  }else{
  await saveVideoCreatorName(name);
  }
@@ -45,7 +52,10 @@ export default function PrivateVideo(){
  <p>Lokale Wiedergabe und private Vorschau; keine Veröffentlichung. Upload nur auf lokalem Testserver.</p>
  <button disabled={!enabled||busy} onClick={()=>void refresh()}>Meine privaten Videos laden</button>
  {files.map(item=><button key={item.path} disabled={busy} onClick={()=>void play(item.path)}>▶ {item.name}</button>)}
- <button disabled={!enabled||!file||busy} onClick={()=>void save(true)}>Privat hochladen</button>
+ <label>Videotitel (Pflichtfeld)<input value={uploadTitle} maxLength={120} disabled={busy} onChange={e=>setUploadTitle(e.target.value)}/></label>
+ <label>Beschreibung<textarea value={uploadDescription} maxLength={2000} disabled={busy} onChange={e=>setUploadDescription(e.target.value)}/></label>
+ <label>Videoformat<select value={uploadKind} disabled={busy} onChange={e=>setUploadKind(e.target.value as 'video'|'short')}><option value="video">Video</option><option value="short">Short</option></select></label>
+ <button disabled={!enabled||!file||!uploadTitle.trim()||busy} onClick={()=>void save(true)}>Video privat hochladen und Entwurf speichern</button>
  <label>Creator-Name<input value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label>
  <button disabled={!enabled||busy||!name.trim()} onClick={()=>void save(false)}>Creator-Name speichern</button>
  <p role="status">{status}</p>
