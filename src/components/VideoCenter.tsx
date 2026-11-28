@@ -26,16 +26,45 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
  const [kind,setKind]=useState<'video'|'short'>('video');
  const [notice,setNotice]=useState('Zum Laden der Video-Plattform ist eine lokale Testumgebung erforderlich.');
  const [busy,setBusy]=useState(false);
+ const [authEmail,setAuthEmail]=useState('');
+ const [authPassword,setAuthPassword]=useState('');
+ const [signedIn,setSignedIn]=useState(false);
  const [search,setSearch]=useState('');
  const [channelView,setChannelView]=useState<string|null>(null);
 
  useEffect(()=>{
-   const {data:{subscription}}=supabase.auth.onAuthStateChange(()=>{
+   void supabase.auth.getUser().then(({data})=>setSignedIn(Boolean(data.user))).catch(()=>setSignedIn(false));
+   const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>{
+     setSignedIn(Boolean(session?.user));
+     setAuthPassword('');
      setPublished([]);setLibrary([]);setSelected(null);setEditing(null);setChannelView(null);
    });
    return ()=>subscription.unsubscribe();
  },[]);
 
+ async function betaAuth(action:'login'|'register'|'logout'){
+   if(!privateVideoEnabled||busy)return;
+   setBusy(true);
+   try{
+     if(action==='logout'){
+       const {error}=await supabase.auth.signOut();
+       if(error)throw error;
+       setSignedIn(false);setLibrary([]);setPublished([]);setNotice('Beta-Testkonto abgemeldet.');
+       return;
+     }
+     if(!/^\S+@\S+\.\S+$/.test(authEmail)||authPassword.length<12)
+       throw Error('Invalid beta credentials');
+     const {error}=action==='register'
+       ?await supabase.auth.signUp({email:authEmail.trim(),password:authPassword})
+       :await supabase.auth.signInWithPassword({email:authEmail.trim(),password:authPassword});
+     if(error)throw error;
+     setAuthPassword('');
+     setNotice(action==='register'
+       ?'Registrierung über die lokale Testumgebung gesendet. Falls erforderlich, E-Mail bestätigen.'
+       :'Anmeldung erfolgreich. Creator-Kanal anlegen und Videos hochladen.');
+   }catch{setNotice('Anmeldung/Registrierung fehlgeschlagen. Testkonto und Passwort prüfen.');}
+   finally{setBusy(false);}
+ }
  async function load(){
    if(!privateVideoEnabled||busy)return;
    setBusy(true);
@@ -124,6 +153,20 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
      setSection(x);setSelected(null);setEditing(null);setChannelView(null);
    },x))}</View>
    {button('FREEDOM / TRUST & JUSTICE',onFreedom)}
+   <View style={s.card}>
+     <Text style={s.heading}>Beta-Testkonto</Text>
+     <Text style={s.text}>{signedIn?'Creator angemeldet':'Für Uploads und die eigene Bibliothek ist eine Anmeldung erforderlich.'}</Text>
+     {!signedIn&&<>
+       {fields('Beta-E-Mail',authEmail,setAuthEmail,200)}
+       <Text style={s.text}>Passwort (mindestens 12 Zeichen)</Text>
+       <TextInput accessibilityLabel="Beta-Passwort" value={authPassword}
+         onChangeText={setAuthPassword} secureTextEntry autoCapitalize="none"
+         maxLength={128} editable={!busy&&privateVideoEnabled} style={s.input}/>
+       {button('Testkonto erstellen',()=>void betaAuth('register'),'signup',busy||!privateVideoEnabled)}
+       {button('Anmelden',()=>void betaAuth('login'),'login',busy||!privateVideoEnabled)}
+     </>}
+     {signedIn&&button('Testkonto abmelden',()=>void betaAuth('logout'),'logout',busy)}
+   </View>
    {button('Video-Plattform aktualisieren',()=>void load(),'refresh',!privateVideoEnabled||busy)}
    <Text style={s.text} accessibilityLiveRegion="polite">{notice}</Text>
    <Text style={s.heading}>{section}</Text>
