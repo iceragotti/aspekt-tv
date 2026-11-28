@@ -105,6 +105,10 @@ if(edgeUrl){
 const anonymous=client();
 const guestBefore=ok(await anonymous.rpc('video_public_catalog'),'anonymous catalog before publication');
 assert.equal(guestBefore.length,0,'Unpublished video visible to anonymous users');
+const hiddenSearch=ok(await anonymous.rpc('video_search',{
+ p_term:'Erstes',p_handle:null,p_kind:null
+}),'private content search');
+assert.equal(hiddenSearch.length,0,'Unpublished item leaked into search');
 const catalogBefore=ok(await other.db.rpc('video_public_catalog'),'unpublished catalog');
 assert.equal(catalogBefore.length,0,'Unapproved video appeared in public catalog');
 const workerEnv={...process.env,SUPABASE_URL:url,SUPABASE_SERVICE_ROLE_KEY:serviceKey};
@@ -114,6 +118,14 @@ assert.equal(processed?.find(v=>v.object_path===path)?.state,'validated','Valid 
 assert.equal(processed?.find(v=>v.object_path===invalidPath)?.state,'rejected','Invalid media not rejected');
 const accepted=processed.find(v=>v.object_path===path);
 assert.ok(accepted?.processed_path,'Transcoded output was not registered');
+const posterRecord=ok(await server.from('video_review').select('thumbnail_path')
+ .eq('id',registered).single(),'poster metadata');
+assert.ok(posterRecord.thumbnail_path,'Thumbnail not created');
+const posterBlob=ok(await server.storage.from('aspekt-video-processed')
+ .download(posterRecord.thumbnail_path),'private poster bytes');
+assert.ok(posterBlob.size>64,'Thumbnail empty');
+await expectFailure(()=>owner.db.storage.from('aspekt-video-processed')
+ .download(posterRecord.thumbnail_path),'Private poster leaked before publication');
 const asset=ok(await server.storage.from('aspekt-video-processed').download(accepted.processed_path),'processed media download');
 assert.ok(asset.size>12,'Transcoded media empty');
 assert.equal(ok(await server.storage.getBucket('aspekt-video-processed'),'processed bucket').public,false);
@@ -142,6 +154,12 @@ if(edgeUrl){
  const signedResponse=await permitted.json();
  assert.ok(signedResponse.path && signedResponse.expiresIn===60,'Missing short-lived playback link');
  assert.ok(signedResponse.path.startsWith('/storage/v1/object/sign/aspekt-video-processed/'),'Invalid playback path');
+ const posterAnswer=await fetch(edgeUrl+'?id='+registered+'&media=thumbnail');
+ assert.equal(posterAnswer.status,200,'Approved poster link unavailable');
+ const posterJson=await posterAnswer.json();
+ assert.ok(posterJson.path?.includes('/storage/v1/object/sign/aspekt-video-processed/'));
+ const actualPoster=await fetch(new URL(posterJson.path,url));
+ assert.equal(actualPoster.ok,true,'Published JPEG poster inaccessible');
  const playable=await fetch(new URL(signedResponse.path,url));
  assert.equal(playable.ok,true,'Signed public playback asset inaccessible');
 }
@@ -149,6 +167,24 @@ const publicCatalog=ok(await other.db.rpc('video_public_catalog'),'active public
 assert.equal(publicCatalog.length,1,'Published video absent from public catalog');
 assert.equal(publicCatalog[0].title,'Erstes echtes Video');
 assert.equal(publicCatalog[0].channel_handle,channel.handle);
+assert.equal(publicCatalog[0].has_thumbnail,true,'Catalog poster flag missing');
+const matched=ok(await other.db.rpc('video_search',{
+ p_term:'Erstes',p_handle:null,p_kind:null
+}),'released video search');
+assert.equal(matched.length,1,'Published video missing from search');
+const byHandle=ok(await anonymous.rpc('video_search',{
+ p_term:'',p_handle:channel.handle,p_kind:'video'
+}),'guest channel filter');
+assert.equal(byHandle.length,1,'Channel page missing published video');
+const noMatch=ok(await anonymous.rpc('video_search',{
+ p_term:'Erstes',p_handle:'unrelated-creator',p_kind:null
+}),'search other channel');
+assert.equal(noMatch.length,0,'Channel filter ignored');
+const hostile=ok(await anonymous.rpc('video_search',{
+ p_term:'%',p_handle:null,p_kind:null
+}),'search wildcard literal');
+assert.equal(hostile.length,0,'Wildcard search escaped publication filtering');
+
 const guestCatalog=ok(await anonymous.rpc('video_public_catalog'),'anonymous published catalog');
 assert.equal(guestCatalog.length,1,'Guest cannot discover published videos');
 assert.ok(!JSON.stringify(publicCatalog).includes('processed_path'),'Private asset path leaked in catalog');
@@ -164,6 +200,8 @@ assert.ok(revoked.revoked_at,'Revocation not recorded');
 if(edgeUrl){
  const revokedPlayback=await fetch(edgeUrl+'?id='+registered);
  assert.equal(revokedPlayback.status,404,'Revoked media still issued new signed links');
+ const posterDenied=await fetch(edgeUrl+'?id='+registered+'&media=thumbnail');
+ assert.equal(posterDenied.status,404,'Revoked poster still issuable');
 }
 const catalogAfterRevoke=ok(await other.db.rpc('video_public_catalog'),'revoked catalog');
 assert.equal(catalogAfterRevoke.length,0,'Revoked video still discoverable');
