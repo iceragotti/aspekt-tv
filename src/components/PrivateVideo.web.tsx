@@ -3,7 +3,7 @@ import {supabase} from '../lib/supabase';
 import {listMyPrivateVideos,signedPrivatePlayback,privateVideoEnabled,type PrivateVideoFile} from '../lib/privateVideo';
 import {loadVideoCreatorName,saveVideoCreatorName} from '../lib/videoCreatorProfile';
 import {updateVideoMetadata} from '../lib/videoPlatform';
-export default function PrivateVideo(){
+export default function PrivateVideo({onUploaded}:{onUploaded?:()=>void}={}){
  const [file,setFile]=useState<File|null>(null);
  const [url,setUrl]=useState('');
  const [status,setStatus]=useState('');
@@ -41,7 +41,7 @@ export default function PrivateVideo(){
  }else{
  await saveVideoCreatorName(name);
  }
- if(upload)await refresh();
+ if(upload){await refresh();onUploaded?.();}
  setStatus(upload?'Quarantäne angelegt – Medienprüfung steht aus. Keine Veröffentlichung.':'Creator-Name gespeichert.');
  }catch{setStatus('Aktion fehlgeschlagen. Testserver, Anmeldung und Datei prüfen.');}finally{setBusy(false);}
  }
