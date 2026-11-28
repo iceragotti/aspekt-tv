@@ -30,6 +30,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/aspekt-video-ci"
           cd "$RUNNER_TEMP/aspekt-video-ci"
           supabase init
+          mkdir -p supabase/migrations
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128023000_trust_justice.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128060000_video_drafts.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128062000_video_engine.sql" supabase/migrations/
@@ -58,5 +59,8 @@ jobs:
           node scripts/test-video-storage.mjs
       - name: Stop disposable Supabase project
         if: always()
-        working-directory: ${{ env.VIDEO_CI_DIR }}
-        run: supabase stop --no-backup || true
+        run: |
+          if [ -d "$RUNNER_TEMP/aspekt-video-ci/supabase" ]; then
+            cd "$RUNNER_TEMP/aspekt-video-ci"
+            supabase stop --no-backup || true
+          fi
