@@ -1,12 +1,18 @@
 import React,{useEffect,useState} from 'react';
 import {supabase} from '../lib/supabase';
+import {listMyPrivateVideos,signedPrivatePlayback,privateVideoEnabled,type PrivateVideoFile} from '../lib/privateVideo';
 export default function PrivateVideo(){
  const [file,setFile]=useState<File|null>(null);
  const [url,setUrl]=useState('');
  const [status,setStatus]=useState('');
  const [busy,setBusy]=useState(false);
  const [name,setName]=useState('');
- const enabled=process.env.EXPO_PUBLIC_VIDEO_STAGING==='true' && /^http:\/\/(localhost|127\.0\.0\.1):54321\/?$/.test(process.env.EXPO_PUBLIC_SUPABASE_URL??'');
+ const [files,setFiles]=useState<PrivateVideoFile[]>([]);
+ const [privateUrl,setPrivateUrl]=useState('');
+ const enabled=privateVideoEnabled;
+ useEffect(()=>{const {data:{subscription}}=supabase.auth.onAuthStateChange(()=>{setFiles([]);setPrivateUrl('');});return()=>subscription.unsubscribe();},[]);
+ async function refresh(){try{setFiles(await listMyPrivateVideos());setStatus('Private Videos geladen.');}catch{setFiles([]);setStatus('Private Videos konnten nicht geladen werden.');}}
+ async function play(path:string){try{setPrivateUrl(await signedPrivatePlayback(path));setStatus('Privater Link ist maximal fünf Minuten gültig.');}catch{setPrivateUrl('');setStatus('Wiedergabe nicht möglich.');}}
  useEffect(()=>{if(!file){setUrl('');return;}const u=URL.createObjectURL(file);setUrl(u);return()=>URL.revokeObjectURL(u);},[file]);
  async function save(upload:boolean){
  if(!enabled||busy)return;
@@ -26,13 +32,17 @@ export default function PrivateVideo(){
  const result=await supabase.from('video_creator_profiles').upsert({display_name:name.trim()},{onConflict:'owner_id'});
  if(result.error)throw result.error;
  }
+ if(upload)await refresh();
  setStatus(upload?'Privat gespeichert – nicht veröffentlicht.':'Creator-Name gespeichert.');
  }catch{setStatus('Aktion fehlgeschlagen. Testserver, Anmeldung und Datei prüfen.');}finally{setBusy(false);}
  }
  return <div style={{color:'#fff',padding:12}}>
  <label>Lokale Videodatei (MP4/WebM, maximal 20 MiB)<input type="file" accept="video/mp4,video/webm" disabled={busy} onChange={e=>{const f=e.target.files?.[0];setFile(f&&f.size<=20971520&&['video/mp4','video/webm'].includes(f.type)?f:null);setStatus(f&&f.size>20971520?'Datei zu groß.':'');}}/></label>
  {url&&<video key={url} src={url} controls playsInline preload="metadata" style={{width:'100%',maxHeight:420}}/>}
- <p>Lokale Wiedergabe; keine Veröffentlichung. Upload nur auf lokalem Testserver.</p>
+ {privateUrl&&<video key={privateUrl} src={privateUrl} controls playsInline preload="metadata" style={{width:'100%',maxHeight:420}}/>}
+ <p>Lokale Wiedergabe und private Vorschau; keine Veröffentlichung. Upload nur auf lokalem Testserver.</p>
+ <button disabled={!enabled||busy} onClick={()=>void refresh()}>Meine privaten Videos laden</button>
+ {files.map(item=><button key={item.path} disabled={busy} onClick={()=>void play(item.path)}>▶ {item.name}</button>)}
  <button disabled={!enabled||!file||busy} onClick={()=>void save(true)}>Privat hochladen</button>
  <label>Creator-Name<input value={name} maxLength={80} onChange={e=>setName(e.target.value)}/></label>
  <button disabled={!enabled||busy||!name.trim()} onClick={()=>void save(false)}>Creator-Name speichern</button>
