@@ -1,0 +1,54 @@
+name: ASPEKT NEXT quality
+on:
+  push:
+    branches: [aspekt-next]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  app:
+    if: github.ref == 'refs/heads/aspekt-next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx --no-install tsc --noEmit
+      - run: npx --no-install expo export --platform web
+        env:
+          EXPO_PUBLIC_TRUST_STAGING: 'false'
+          EXPO_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: test-only
+      - run: npm audit --audit-level=high
+  trust:
+    if: github.ref == 'refs/heads/aspekt-next'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: local-ci-only
+          POSTGRES_DB: trust_test
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      PGPASSWORD: local-ci-only
+      PGDATABASE: trust_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/ci_fixture.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261128023000_trust_justice.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/trust_justice.sql
+      - run: psql -v ON_ERROR_STOP=1 -f supabase/tests/trust_rls.sql
