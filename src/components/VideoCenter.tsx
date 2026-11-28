@@ -2,11 +2,12 @@ import React,{useEffect,useState} from 'react';
 import {View,Text,TextInput,TouchableOpacity,StyleSheet,ScrollView} from 'react-native';
 import PrivateVideo from './PrivateVideo';
 import PublicVideo from './PublicVideo';
+import VideoThumbnail from './VideoThumbnail';
 import {supabase} from '../lib/supabase';
 import {privateVideoEnabled} from '../lib/privateVideo';
 import {
  myVideoLibrary,publicVideoCatalog,myVideoChannel,saveVideoChannel,
- updateVideoMetadata,unpublishOwnVideo,type VideoEntry,type PublicVideoEntry
+ updateVideoMetadata,unpublishOwnVideo,searchReleasedVideos,type VideoEntry,type PublicVideoEntry
 } from '../lib/videoPlatform';
 
 type Section='Discover'|'Shorts'|'Channels'|'Library'|'Studio';
@@ -25,10 +26,12 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
  const [kind,setKind]=useState<'video'|'short'>('video');
  const [notice,setNotice]=useState('Zum Laden der Video-Plattform ist eine lokale Testumgebung erforderlich.');
  const [busy,setBusy]=useState(false);
+ const [search,setSearch]=useState('');
+ const [channelView,setChannelView]=useState<string|null>(null);
 
  useEffect(()=>{
    const {data:{subscription}}=supabase.auth.onAuthStateChange(()=>{
-     setPublished([]);setLibrary([]);setSelected(null);setEditing(null);
+     setPublished([]);setLibrary([]);setSelected(null);setEditing(null);setChannelView(null);
    });
    return ()=>subscription.unsubscribe();
  },[]);
@@ -52,6 +55,26 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
    }catch{
      setPublished([]);setLibrary([]);setNotice('Daten konnten nicht geladen werden. Anmeldung und lokale Supabase-Migrationen prüfen.');
    }finally{setBusy(false);}
+ }
+ async function searchVideos(){
+   if(!privateVideoEnabled||busy)return;
+   setBusy(true);
+   try{
+     setPublished(await searchReleasedVideos(search,channelView??undefined,
+       section==='Shorts'?'short':undefined));
+     setNotice('Suche abgeschlossen: nur freigegebene Videos werden angezeigt.');
+   }catch{setPublished([]);setNotice('Die Videosuche ist momentan nicht erreichbar.');}
+   finally{setBusy(false);}
+ }
+ async function openChannel(handle:string){
+   if(busy)return;
+   setBusy(true);
+   try{
+     setSection('Channels');setChannelView(handle);setSelected(null);
+     setPublished(await searchReleasedVideos('',handle));
+     setNotice('Kanalansicht: @'+handle);
+   }catch{setNotice('Kanal konnte nicht geladen werden.');}
+   finally{setBusy(false);}
  }
  async function saveChannel(){
    if(busy)return;
@@ -98,24 +121,41 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
    <Text style={s.heading}>ASPEKT VIDEO PLATFORM PRO</Text>
    <Text style={s.text}>Echte Creator-Kanäle, Videoverwaltung und Veröffentlichungsstatus. Keine Beispieldaten.</Text>
    <View style={s.row}>{sections.map(x=>button(x,()=>{
-     setSection(x);setSelected(null);setEditing(null);
+     setSection(x);setSelected(null);setEditing(null);setChannelView(null);
    },x))}</View>
    {button('FREEDOM / TRUST & JUSTICE',onFreedom)}
    {button('Video-Plattform aktualisieren',()=>void load(),'refresh',!privateVideoEnabled||busy)}
    <Text style={s.text} accessibilityLiveRegion="polite">{notice}</Text>
    <Text style={s.heading}>{section}</Text>
    {(section==='Discover'||section==='Shorts')&&<>
+     {fields('Videos und Kanäle suchen',search,setSearch,80)}
+     {button('Suche starten',()=>void searchVideos(),'search',busy||!privateVideoEnabled)}
      {cards.length===0&&<Text style={s.text}>Derzeit keine freigegebenen Videos verfügbar.</Text>}
      {cards.map(v=><View key={v.id} style={s.card}>
+       <VideoThumbnail id={v.id} available={v.has_thumbnail}/>
        <Text style={s.heading}>{v.title}</Text>
        <Text style={s.text}>@{v.channel_handle} · {v.channel_name} · {v.kind==='short'?'Short':'Video'}</Text>
        {Boolean(v.description)&&<Text style={s.text}>{v.description}</Text>}
+       {button('Kanal @'+v.channel_handle+' ansehen',()=>void openChannel(v.channel_handle),'channel-'+v.id,busy)}
        {button(selected===v.id?'Player schließen':'▶ Freigegebenes Video abspielen',
         ()=>setSelected(old=>old===v.id?null:v.id),'play-'+v.id)}
        {selected===v.id&&<PublicVideo id={v.id}/>}
      </View>)}
    </>}
    {section==='Channels'&&<>
+     {channelView&&<>
+       <Text style={s.heading}>Kanal @{channelView}</Text>
+       {button('Alle Kanäle anzeigen',()=>{setChannelView(null);void load();},'all-channels')}
+       {published.filter(v=>v.channel_handle===channelView).map(v=>
+         <View key={v.id} style={s.card}>
+           <VideoThumbnail id={v.id} available={v.has_thumbnail}/>
+           <Text style={s.heading}>{v.title}</Text>
+           <Text style={s.text}>{v.channel_name} · {v.description}</Text>
+           {button(selected===v.id?'Player schließen':'▶ Video ansehen',
+             ()=>setSelected(old=>old===v.id?null:v.id),'channel-play-'+v.id)}
+           {selected===v.id&&<PublicVideo id={v.id}/>}
+         </View>)}
+     </>}
      <Text style={s.text}>Eigener Creator-Kanal – nur das angemeldete Testkonto darf Änderungen speichern.</Text>
      {fields('Kanal-Handle (3–30 Zeichen)',handle,x=>setHandle(x.toLowerCase()),30)}
      {fields('Kanalname',displayName,setDisplayName,80)}
@@ -150,6 +190,7 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
      </View>)}
    </>}
    {section==='Studio'&&<>
+     <Text style={s.heading}>Creator-Start: 1. Konto anmelden → 2. Kanal unter Channels erstellen → 3. Video hochladen → 4. In Library Titel und Status prüfen → 5. Unabhängige Freigabe abwarten</Text>
      <Text style={s.text}>Private Uploads und Creator-Profile. Zur Veröffentlichung sind Medienprüfung und unabhängige Moderation erforderlich.</Text>
      <PrivateVideo/>
      <Text style={s.text}>Die Videodetails können nach dem Upload im Bereich Library bearbeitet werden.</Text>
