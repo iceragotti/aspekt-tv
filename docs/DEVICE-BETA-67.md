@@ -15,7 +15,7 @@ This implementation is **only** on `aspekt-next`. Do not merge into `main`, link
 ## Running in the *isolated* local beta environment
 
 - Use `bash scripts/prepare-video-beta-staging.sh` from the repository, after checking no remote Supabase keys/environment variables are present.
-- The app currently requires `EXPO_PUBLIC_VIDEO_STAGING=true` and the **literal** `EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321` (or localhost) with the local anon/publishable key; this intentionally **rejects cloud and production URLs**.
+- The app requires `EXPO_PUBLIC_VIDEO_STAGING=true` and an allowed Supabase URL. Local loopback works as before. External HTTPS origins are denied until reviewed and explicitly listed in `src/lib/videoStagingGate.ts`. The shipped allowlist is empty; never add production.
 - **Android emulator:** if Supabase is running on the same development computer, set up `adb reverse tcp:54321 tcp:54321` so `127.0.0.1:54321` on the emulator reaches the host.
 - **iOS simulator:** loopback generally reaches the local host. Verify the connection in the simulator rather than assuming.
 - **Physical iOS/Android phones cannot access this loopback-only configuration across Wi-Fi.** No physical-device end-to-end success has been established. A separate, non-production HTTPS staging host, its authentication and key handling, and a deliberately reviewed staging allowlist are prerequisites before physical-device upload testing.
@@ -38,6 +38,19 @@ The `ASPEKT NEXT quality` workflow runs `scripts/test-native-video-upload.mjs` a
 
 The `Isolated Supabase video integration` workflow separately exercises real local Supabase Auth/Storage with transcoding, quarantine, media review and publication. **The mocked native upload test does not replace physical-device testing.**
 
+## Phase 6.7.2 – HTTPS device beta readiness gate
+
+**NOT DEPLOYED:** This branch prepares an origin gate only; no hosted staging server or physical-device upload has been verified.
+
+1. Provision a separate Supabase staging project with unique keys, storage, database and dummy users; never link production.
+2. Verify TLS, authentication, RLS, private buckets, upload constraints, rate limits, cleanup of orphaned files and worker isolation.
+3. Only after a human security review, add the exact HTTPS origin to `src/lib/videoStagingGate.ts`. Never add production.
+4. Configure only the staging public anon/publishable key in the client. Service-role keys belong on isolated servers, never inside the app.
+5. Assign unique application identifiers and EAS signing credentials. Keep both beta build profile staging toggles false until approval.
+6. Run all CI jobs and test Android/iOS phones with dummy files, failed uploads, cross-user access checks, cancellation and network loss.
+7. Record go/no-go and rollback ownership. A client-side origin check is not an authorization boundary.
+
+`scripts/test-video-staging-gate.mjs` is wired into the quality CI workflow; it tests the default fail-closed gate, not a live HTTPS endpoint.
 ## Known beta limitations
 - 20 MiB limit is intentionally small; native selection copies to cache. Very large files and background-resumable uploads are out of scope.
 - Network interruptions can leave an unregistered private Storage object; require a server-side stale-object cleanup process before scaling.
