@@ -1,6 +1,7 @@
 import React,{useEffect,useState} from 'react';
 import {supabase} from '../lib/supabase';
 import {listMyPrivateVideos,signedPrivatePlayback,privateVideoEnabled,type PrivateVideoFile} from '../lib/privateVideo';
+import {loadVideoCreatorName,saveVideoCreatorName} from '../lib/videoCreatorProfile';
 export default function PrivateVideo(){
  const [file,setFile]=useState<File|null>(null);
  const [url,setUrl]=useState('');
@@ -10,8 +11,8 @@ export default function PrivateVideo(){
  const [files,setFiles]=useState<PrivateVideoFile[]>([]);
  const [privateUrl,setPrivateUrl]=useState('');
  const enabled=privateVideoEnabled;
- useEffect(()=>{const {data:{subscription}}=supabase.auth.onAuthStateChange(()=>{setFiles([]);setPrivateUrl('');});return()=>subscription.unsubscribe();},[]);
- async function refresh(){try{setFiles(await listMyPrivateVideos());setStatus('Private Videos geladen.');}catch{setFiles([]);setStatus('Private Videos konnten nicht geladen werden.');}}
+ useEffect(()=>{const {data:{subscription}}=supabase.auth.onAuthStateChange(()=>{setFiles([]);setPrivateUrl('');setName('');});return()=>subscription.unsubscribe();},[]);
+ async function refresh(){try{const [files,profile]=await Promise.all([listMyPrivateVideos(),loadVideoCreatorName()]);setFiles(files);setName(profile);setStatus('Private Videos und Creator-Profil geladen.');}catch{setFiles([]);setStatus('Private Videos konnten nicht geladen werden.');}}
  async function play(path:string){try{setPrivateUrl(await signedPrivatePlayback(path));setStatus('Privater Link ist maximal fünf Minuten gültig.');}catch{setPrivateUrl('');setStatus('Wiedergabe nicht möglich.');}}
  useEffect(()=>{if(!file){setUrl('');return;}const u=URL.createObjectURL(file);setUrl(u);return()=>URL.revokeObjectURL(u);},[file]);
  async function save(upload:boolean){
@@ -31,8 +32,7 @@ export default function PrivateVideo(){
  const registered=await supabase.rpc('video_register_upload',{p_path:result.data.path});
  if(registered.error)throw registered.error;
  }else{
- const result=await supabase.from('video_creator_profiles').upsert({display_name:name.trim()},{onConflict:'owner_id'});
- if(result.error)throw result.error;
+ await saveVideoCreatorName(name);
  }
  if(upload)await refresh();
  setStatus(upload?'Quarantäne angelegt – Medienprüfung steht aus. Keine Veröffentlichung.':'Creator-Name gespeichert.');
