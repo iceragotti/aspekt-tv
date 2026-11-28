@@ -11,6 +11,9 @@ on:
       - 'scripts/validate-video.mjs'
       - 'supabase/migrations/*video*.sql'
       - 'src/lib/privateVideo.ts'
+      - 'src/lib/videoPlatform.ts'
+      - 'src/components/VideoCenter.tsx'
+      - 'src/components/PublicVideo*.tsx'
       - 'src/components/PrivateVideo*.tsx'
       - 'package.json'
       - 'package-lock.json'
@@ -46,6 +49,8 @@ jobs:
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128063000_video_review.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128065000_video_register_upload.sql" supabase/migrations/
           cp "$GITHUB_WORKSPACE/supabase/migrations/20261128070000_video_processing_publication.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128072000_video_platform.sql" supabase/migrations/
+          cp "$GITHUB_WORKSPACE/supabase/migrations/20261128073000_video_platform_publish_gate.sql" supabase/migrations/
           echo "VIDEO_CI_DIR=$RUNNER_TEMP/aspekt-video-ci" >> "$GITHUB_ENV"
       - name: Start temporary real Supabase Auth and Storage services
         working-directory: ${{ env.VIDEO_CI_DIR }}
