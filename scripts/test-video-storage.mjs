@@ -128,6 +128,9 @@ ok(await server.from('trust_staff').insert({user_id:reviewer.id}),'grant local r
 ok(await reviewer.db.rpc('video_review_approve',{p_id:registered}),'independent review approval');
 const approved=ok(await server.from('video_review').select('state').eq('id',registered).single(),'approved state');
 assert.equal(approved.state,'approved');
+await expectFailure(()=>owner.db.rpc('video_save_metadata',{
+ p_review_id:registered,p_title:'Metadata edited after approval',p_description:'',p_kind:'video'
+}),'Approved metadata changed after moderation review');
 await expectFailure(()=>owner.db.rpc('video_publish',{p_review_id:registered}),'Creator published own video');
 ok(await reviewer.db.rpc('video_publish',{p_review_id:registered}),'publish approved asset');
 if(edgeUrl){
