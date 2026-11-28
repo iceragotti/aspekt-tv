@@ -37,13 +37,18 @@ export default function VideoCenter({onFreedom}:{onFreedom:()=>void}){
    if(!privateVideoEnabled||busy)return;
    setBusy(true);
    try{
-     const [catalog,items,channel]=await Promise.all([
-       publicVideoCatalog(),myVideoLibrary(),myVideoChannel()
-     ]);
-     setPublished(catalog);setLibrary(items);
-     setHandle(channel?.handle??'');setDisplayName(channel?.display_name??'');
-     setBio(channel?.description??'');
-     setNotice('Echte Video- und Kanaldaten geladen.');
+     const catalog=await publicVideoCatalog();
+     setPublished(catalog);
+     const {data:{user}}=await supabase.auth.getUser();
+     if(user){
+       const [items,channel]=await Promise.all([myVideoLibrary(),myVideoChannel()]);
+       setLibrary(items);
+       setHandle(channel?.handle??'');setDisplayName(channel?.display_name??'');
+       setBio(channel?.description??'');
+     }else{
+       setLibrary([]);setHandle('');setDisplayName('');setBio('');
+     }
+     setNotice('Echte Videodaten geladen – auch ohne Creator-Anmeldung verfügbar.');
    }catch{
      setPublished([]);setLibrary([]);setNotice('Daten konnten nicht geladen werden. Anmeldung und lokale Supabase-Migrationen prüfen.');
    }finally{setBusy(false);}
