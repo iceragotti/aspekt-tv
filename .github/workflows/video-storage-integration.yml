@@ -5,6 +5,13 @@ on:
     branches: [aspekt-next]
     paths:
       - 'scripts/test-video-storage.mjs'
+      - 'scripts/process-video-quarantine.mjs'
+      - 'scripts/validate-video.mjs'
+      - 'supabase/migrations/*video*.sql'
+      - 'src/lib/privateVideo.ts'
+      - 'src/components/PrivateVideo*.tsx'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/video-storage-integration.yml'
 permissions:
   contents: read
